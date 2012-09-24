@@ -31,7 +31,7 @@ MULTI-ECHO INDEPENDENT COMPONENTS ANALYSIS (ME-ICA)
 		--prefix=rest30
 			Prefix for output files
 			
-	This will produce 5 output files:
+	This will produce 6 output files:
 
 		mprage_ns.nii.gz
 			Skullstripped anatomical in native space
@@ -41,6 +41,8 @@ MULTI-ECHO INDEPENDENT COMPONENTS ANALYSIS (ME-ICA)
 			Denoised time series, after T2* weighted combination of TEs (Talairach space)
 		rest30_mefc.nii.gz 
 			Maps of ICA components, in units of signal (Talairach space)
+		rest30_tsoc.nii.gz
+			T2* weighted combination of TEs (not denoised)
 		rest30_ctab.txt
 			Table of components, with Kappa,Rho, and variance measures
 
