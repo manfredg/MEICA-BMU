@@ -354,10 +354,11 @@ def selcomps(comptable,hifm=True):
 	accvprez = (accvprez-accvprez.mean())/accvprez.std()
 	accrprez = ctb[ctb[:,1]>100,2]
 	accrprez = (accrprez-accrprez.mean())/accrprez.std()
-	accspre = andb([accvprez>1.5,accrprez>1])
-	accspre = np.array(accspre==2,dtype=np.int)+np.array(accvprez>3,dtype=np.int)
+	accspre = np.array(accvprez+accrprez>3,dtype=np.int)+np.array(ctb[ctb[:,1]>100,3:5].sum(axis=1)>5,dtype=np.int)
+	
+	print accvprez,accrprez
 
-	acc = list(ctb[ctb[:,1]>100,0][accspre==0])
+	acc = list(ctb[ctb[:,1]>100,0][accspre<2])
 	rej = list(ctb[ctb[:,2]>fmid,0])
 	mid = list(set(range(ctb.shape[0]))-set(acc)-set(rej))
 	

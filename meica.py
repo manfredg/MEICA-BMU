@@ -80,7 +80,7 @@ def dep_check():
 			print "*+ Numpy is not linked to BLAS! Please check Numpy installation."
 	afnicheck = commands.getstatusoutput("3dinfo")
 	fslfastcheck = commands.getstatusoutput("fast")
-	afnisegcheck = commands.getstatusoutput("3dseg -help")
+	afnisegcheck = commands.getstatusoutput("3dSeg -help")
 	if afnicheck[0]!=0:
 		print "*+ Can't run AFNI binaries. Make sure AFNI is on the path!"
 		fails+=1
@@ -90,10 +90,14 @@ def dep_check():
 	if afnisegcheck[0]==0 and len(afnisegcheck[1]) >= 1000:
 		print " + Using AFNI 3dSeg for gray matter weighted anatomical-functional coregistration"
 		grayweight_ok = 1
-	elif fslfastcheck[0]==256 and float(fslfastcheck[1].split('\n')[2].split()[3])>=4.1:
-		print " + Using FSL FAST for gray matter weighted anatomical-functional coregistration"
-		grayweight_ok = 2
-	else:
+	elif fslfastcheck[0]==256:
+		try:
+			if int(fslfastcheck[1].split('\n')[1].split()[4].strip().strip(')'))>=414:
+				print " + Using FSL FAST for gray matter weighted anatomical-functional coregistration"
+				grayweight_ok = 2
+		except:
+			pass
+	if grayweight_ok==0:
 		print "*+ WARNING: Neither AFNI 3dSeg nor FSL FAST >=4.1 available for gray matter weighted coregistration. See README."
 	if fails==0:
 		print " + Dependencies OK."
