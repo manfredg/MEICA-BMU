@@ -398,11 +398,11 @@ if options.anat!='' and options.tlrc!=False:
 	sl.append("%snifti_tool -mod_hdr -mod_field sform_code 2 -mod_field qform_code 2 -infiles %s/%s_medn.nii -overwrite" % (tedflag,startdir,options.prefix))
 	sl.append("%snifti_tool -mod_hdr -mod_field sform_code 2 -mod_field qform_code 2 -infiles %s/%s_mefc.nii -overwrite" % (tedflag,startdir,options.prefix))
 hist_line = "%s" % (" ".join(sys.argv).replace('"',r"\""))
-note_line = "Denoised timeseries, produced by ME-ICA v2.0 (r1)"
+note_line = "Denoised timeseries, produced by ME-ICA v2.0 (r5)"
 sl.append("%s3dNotes -h \'%s (%s)\' %s/%s_medn.nii" % (tedflag,hist_line,note_line,startdir,options.prefix))
 note_line = "Denoised ICA coeff. set for seed-based FC analysis, produced by ME-ICA v2.0 (r1)"
 sl.append("%s3dNotes -h \'%s (%s)\' %s/%s_mefc.nii" % (tedflag,hist_line,note_line,startdir,options.prefix))
-note_line = "T2* weighted average of ME time series, produced by ME-ICA v2.0 (r1)"
+note_line = "T2* weighted average of ME time series, produced by ME-ICA v2.0 (r5)"
 sl.append("%s3dNotes -h \'%s (%s)\' %s/%s_tsoc.nii" % (tedflag,hist_line,note_line,startdir,options.prefix))
 sl.append("%sgzip -f %s/%s_medn.nii %s/%s_mefc.nii %s/%s_tsoc.nii" % (tedflag,startdir,options.prefix,startdir,options.prefix,startdir,options.prefix))
 
