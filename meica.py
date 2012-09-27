@@ -257,16 +257,16 @@ sl.append("echo 1 > stage" )
 if isf==osf:
 	for ds in datasets: sl.append("cp %s/%s%s%s%s ./%s%s%s%s" % (startdir,prefix,ds,trailing,isf,prefix,ds,trailing,osf))
 else:
-	for ds in datasets: sl.append("3dcalc -a %s/%s%s%s%s -expr 'a' -prefix ./%s%s%s%s" % (startdir,prefix,ds,trailing,isf,prefix,ds,trailing,osf))
+	for ds in datasets: sl.append("3dcalc -float -a %s/%s%s%s%s -expr 'a' -prefix ./%s%s%s%s" % (startdir,prefix,ds,trailing,isf,prefix,ds,trailing,osf))
 vrAinput = "./%s%s" % (vrbase,osf)
-sl.append("3dvolreg -quintic  -prefix ./%s_vrA%s -base %s[%s] -dfile ./%s_vrA.1D -1Dmatrix_save ./%s_vrmat.aff12.1D %s" % \
+sl.append("3dvolreg -tshift -quintic  -prefix ./%s_vrA%s -base %s[%s] -dfile ./%s_vrA.1D -1Dmatrix_save ./%s_vrmat.aff12.1D %s" % \
 		  (vrbase,osf,vrAinput,basebrik,vrbase,prefix,vrAinput))
 vrAinput = "./%s_vrA%s" % (vrbase,osf)
 if oblique_mode: 
 	if options.anat!='': sl.append("3dWarp -verb -card2oblique %s[0] -overwrite  -newgrid 1.000000 -prefix ./%s_ob.nii.gz %s/%s | \grep  -A 4 '# mat44 Obliquity Transformation ::'  > %s_obla2e_mat.1D" % (vrAinput,anatprefix,startdir,nsmprage,prefix))
 	else: sl.append("3dWarp -overwrite -prefix %s -deoblique %s" % (vrAinput,vrAinput))
 sl.append("1dcat './%s_vrA.1D[1..6]{%s..$}' > motion.1D " % (vrbase,basebrik))
-sl.append("3dcalc -expr 'a' -a %s[%s] -prefix ./_eBmask%s" % (vrAinput,align_base,osf))
+sl.append("3dcalc -float -expr 'a' -a %s[%s] -prefix ./_eBmask%s" % (vrAinput,align_base,osf))
 sl.append("3dAutomask -prefix eBmask%s -peels 3 _eBmask%s" % (osf,osf))
 e2dsin = prefix+datasets[0]+trailing
 
@@ -274,13 +274,13 @@ e2dsin = prefix+datasets[0]+trailing
 if options.anat!='':
 	if grayweight_ok == 1:
 		sl.append("3dSeg -mask eBmask%s -anat _eBmask%s" % (osf,osf))
-		sl.append("3dcalc -a Segsy/Posterior+orig[1] -expr 'a' -prefix epigraywt%s" % (osf))
-		sl.append("3dcalc -a Segsy/AnatUB+orig -b Segsy/Classes+orig -expr 'a*step(b)' -prefix eBbase%s" % (osf))
+		sl.append("3dcalc -float -a Segsy/Posterior+orig[1] -expr 'a' -prefix epigraywt%s" % (osf))
+		sl.append("3dcalc -float -a Segsy/AnatUB+orig -b Segsy/Classes+orig -expr 'a*step(b)' -prefix eBbase%s" % (osf))
 		weightline = ' -lpc -weight epigraywt%s -base eBbase%s ' % (osf,osf)
 	elif grayweight_ok == 2:
-		sl.append("3dcalc -overwrite -prefix eBmask%s -a eBmask%s -b _eBmask%s -expr 'a*b'" % (osf,osf,osf))
+		sl.append("3dcalc -float -overwrite -prefix eBmask%s -a eBmask%s -b _eBmask%s -expr 'a*b'" % (osf,osf,osf))
 		sl.append("fast -t 2 -n 3 -H 0.1 -I 4 -l 20.0 -b -o eBmask eBmask%s" % (osf)) 
-		sl.append("3dcalc -a eBmask%s -b eBmask_bias%s -expr 'a/b' -prefix eBbase%s" % ( osf, osf, osf))
+		sl.append("3dcalc -float -a eBmask%s -b eBmask_bias%s -expr 'a/b' -prefix eBbase%s" % ( osf, osf, osf))
 		weightline = ' -lpc -weight eBmask_pve_0.nii.gz -base eBbase%s ' % (osf)
 	else: weightline = ' -lpc+ZZ -automask -autoweight -base _eBmask%s ' % (osf)
 	sl.append("cp %s/%s* ." % (startdir,nsmprage))	
@@ -289,7 +289,7 @@ if options.anat!='':
 		sl.append("afnibinloc=`which 3dSkullStrip`")
 		sl.append("templateloc=${afnibinloc%/*}")
 		atnsmprage = "%s_at.nii" % (dsprefix(nsmprage))
-		if not dssuffix(nsmprage).__contains__('nii'): sl.append("3dcalc -a %s -expr 'a' -prefix %s.nii.gz" % (nsmprage,dsprefix(nsmprage)))
+		if not dssuffix(nsmprage).__contains__('nii'): sl.append("3dcalc -float -a %s -expr 'a' -prefix %s.nii.gz" % (nsmprage,dsprefix(nsmprage)))
 		sl.append("if [ ! -e %s ]; then \@auto_tlrc -no_ss -base ${templateloc}/%s -input %s.nii.gz -suffix _at; fi " % (atnsmprage,options.tlrc,dsprefix(nsmprage)))
 		sl.append("3dcopy %s %s" % (atnsmprage,dsprefix(atnsmprage)))
 		sl.append("3drefit -view orig %s+tlrc " % dsprefix(atnsmprage) )
@@ -341,21 +341,21 @@ for echo_ii in range(len(datasets)):
 			sl.append("3dresample -overwrite -rmode NN -dxyz `3dinfo -ad3 eBvrmask.nii.gz` -inset eBvrmask.nii.gz -prefix eBvrmask.nii.gz -master %s" % (abmprage))
 		else:
 			sl.append("3dAutobox -overwrite -prefix eBvrmask%s eBvrmask%s" % (osf,osf) )
-		sl.append("3dcalc -a eBvrmask.nii.gz -expr 'notzero(a)' -overwrite -prefix eBvrmask.nii.gz")
+		sl.append("3dcalc -float -a eBvrmask.nii.gz -expr 'notzero(a)' -overwrite -prefix eBvrmask.nii.gz")
 	
 	sl.append("3dAllineate -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base eBvrmask%s -input  %s_ts+orig -prefix ./%s_vr%s" % \
 		(align_interp,align_interp,prefix,osf,dsin,dsin,osf))
 	
 	if options.FWHM=='0mm': 
-		sl.append("3dcalc -overwrite -a eBvrmask.nii.gz -b ./%s_vr%s[%i..$] -expr 'step(a)*b' -prefix ./%s_sm%s " % (dsin,osf,basebrik,dsin,osf))
+		sl.append("3dcalc -float -overwrite -a eBvrmask.nii.gz -b ./%s_vr%s[%i..$] -expr 'step(a)*b' -prefix ./%s_sm%s " % (dsin,osf,basebrik,dsin,osf))
 	else: 
 		sl.append("3dBlurInMask -fwhm %s -mask eBvrmask%s -prefix ./%s_sm%s ./%s_vr%s[%i..$]" % (options.FWHM,osf,dsin,osf,dsin,osf,basebrik))
 	sl.append("gms=`cat gms.1D`; gmsa=($gms); p50=${gmsa[1]}")
-	sl.append("3dcalc -overwrite -a ./%s_sm%s -expr \"a*10000/${p50}\" -prefix ./%s_sm%s" % (dsin,osf,dsin,osf))
+	sl.append("3dcalc -float -overwrite -a ./%s_sm%s -expr \"a*10000/${p50}\" -prefix ./%s_sm%s" % (dsin,osf,dsin,osf))
 	sl.append("3dTstat -prefix ./%s_mean%s ./%s_sm%s" % (dsin,osf,dsin,osf))
 	if options.highpass!=0.0: sl.append("3dBandpass -prefix ./%s_in%s %f 99 ./%s_sm%s " % (dsin,osf,float(options.highpass),dsin,osf) )
 	else: sl.append("mv %s_sm%s %s_in%s" % (dsin,osf,dsin,osf))
-	sl.append("3dcalc -overwrite -a ./%s_in%s -b ./%s_mean%s -expr 'a+b' -prefix ./%s_in%s" % (dsin,osf,dsin,osf,dsin,osf))
+	sl.append("3dcalc -float -overwrite -a ./%s_in%s -b ./%s_mean%s -expr 'a+b' -prefix ./%s_in%s" % (dsin,osf,dsin,osf,dsin,osf))
 	sl.append("3dTstat -stdev -prefix ./%s_std%s ./%s_in%s" % (dsin,osf,dsin,osf))
 	if options.test_proc: sl.append("exit")
 	if not (options.test_proc or options.keep_int): sl.append("rm -f %s_ts+orig* %s_vr%s %s_sm%s" % (dsin,dsin,osf,dsin,osf))
@@ -377,7 +377,7 @@ else:
 		zcatstring = "%s ./%s_in%s" % (zcatstring,dsin,osf)
 
 	sl.append("3dZcat -overwrite -prefix %s  %s" % (ica_input,zcatstring) )
-	sl.append("3dcalc -overwrite -a %s[0] -expr 'notzero(a)' -prefix %s" % (ica_input,ica_mask))
+	sl.append("3dcalc -float -overwrite -a %s[0] -expr 'notzero(a)' -prefix %s" % (ica_input,ica_mask))
 
 if options.pp_only: tedflag='#'
 else: tedflag = ''
