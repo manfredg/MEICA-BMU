@@ -486,7 +486,7 @@ def selcomps(comptable,hifm=True):
 	return acc,rej,mid
 	
 #import ipdb
-	
+
 def selcomps(comptable):
 	
 	fmin,fmid,fmax = getfbounds(ne)
@@ -529,7 +529,7 @@ def selcomps(comptable):
 			midcan = (n_[andb([v_z>1.5,andb([k_p2_z < -2,k_p10_z < -2,v_z-k_p2_z > 3])>0])==2]).tolist()
 			midnew = list(set(midcan)-set(midkeep))
 			if midnew==[]: break
-			ipdb.set_trace()
+			#ipdb.set_trace()
 			mid+=midnew
 			acc = sorted(list(set(ctb[:,0])-set(rej)-set(mid)))
 		
@@ -538,16 +538,41 @@ def selcomps(comptable):
 	mid = sorted(ctbo[mid,0].tolist())
 	rej = sorted(ctbo[rej,0].tolist())
 	
-	np.savetxt('accepted.txt',np.array(acc).T,fmt='%d',delimiter=',')
-	np.savetxt('rejected.txt',np.array(rej).T,fmt='%d',delimiter=',')
-	np.savetxt('midk_rejected.txt',np.array(mid).T,fmt='%d',delimiter=',')
+
 	
 	#import ipdb
 	#ipdb.set_trace()
 	
 	return acc,rej,mid
 
+def selcomps(comptable):
 	
+	ks = comptable[:,1]
+	rs =comptable[ comptable[:,2].argsort()[::-1],2]
+	k_t = ks[getelbowiter(ks)]
+	r_t = rs[getelbowiter(rs)]
+	sel = andb([comptable[:,1]>k_t, comptable[:,2]<r_t])
+	acc = comptable[sel==2,0]
+	rej = comptable[sel!=2,0]
+	mid = np.array([])
+	if not options.nomid:
+		ks_z = (ks[acc.tolist()]-ks[acc.tolist()].mean())/ks[acc.tolist()].std()
+		a_v = comptable[acc.tolist(),3:5].sum(axis=1)
+		a_vz = (a_v-a_v.mean())/a_v.std()
+		mid = acc[a_vz-ks_z > 3]
+	rej = rej.tolist()
+	mid = mid.tolist()
+	acc = list(set(comptable[:,0].tolist())-set(mid)-set(rej))
+	
+	open('accepted.txt','w').write(','.join([str(int(cc)) for cc in acc]))
+	open('rejected.txt','w').write(','.join([str(int(cc)) for cc in rej]))
+	open('midk_rejected.txt','w').write(','.join([str(int(cc)) for cc in mid]))
+			
+	return acc,rej,mid
+	
+	
+
+
 def dvars(dv,mud):
 	nx,ny,nz,nt = dv.shape
 	d = dv.reshape([nx*ny*nz,nt]).T
@@ -616,6 +641,31 @@ def getelbow(ks):
 	k_min_ind = d.argmax()
 	k_min  = ks[k_min_ind]
 	return k_min_ind
+
+def getelbowiter(ks,bias=False):
+	rstart = 0 
+	rend = len(ks)
+	iter = 0
+	if not bias:
+		el = -1
+		newel = -2
+		while el!=newel:
+			el = newel
+			newel = rstart+getelbow(ks[rstart:rend])
+			rdel = min((newel-rstart)/2,(rend-newel)/2)
+			rstart = newel-rdel
+			rend = newel+rdel
+			print el
+	if bias:
+		el = 999
+		newel = 999
+		while rstart+1<=el:
+			iter+=1
+			el = newel
+			newel = rstart+getelbow(ks[rstart:rend])
+			rstart = newel-newel/pow(2,iter)
+			rend = newel+(len(ks)-newel)/pow(2,iter)
+	return el
 
 def getfbounds(ne):
 	F05s=[None,None,18.5,10.1,7.7,6.6,6.0,5.6,5.3,5.1,5.0]

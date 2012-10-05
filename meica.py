@@ -117,6 +117,7 @@ extopts.add_option('',"--no_skullstrip",action="store_true",dest='no_skullstrip'
 extopts.add_option('',"--maskpeels",dest='maskpeels',help="Functional masking factor, increase for more aggressive masking, default 3",default=3)
 extopts.add_option('',"--tlrc",dest='tlrc',help="Normalize to Talairach space, specify base, ex: --tlrc TT_N27+tlrc",default=False)
 extopts.add_option('',"--align_args",dest='align_args',help="Additional arguments for 3dAllineate EPI-anatomical alignment",default='')
+extopts.add_option('',"--align_base",dest='align_base',help="Explicitly specify base dataset for volume registration",default='')
 extopts.add_option('',"--TR",dest='TR',help="The TR. Default read from input datasets",default='')
 extopts.add_option('',"--tpattern",dest='tpattern',help="Slice timing (i.e. alt+z, see 3dTshift --help). Default from header. (N.B. This is important!)",default='')
 extopts.add_option('',"--highpass",dest='highpass',help="Highpass filter in Hz (recommended default 0.0)",default=0.0)
@@ -259,8 +260,15 @@ if isf==osf:
 else:
 	for ds in datasets: sl.append("3dcalc -float -a %s/%s%s%s%s -expr 'a' -prefix ./%s%s%s%s" % (startdir,prefix,ds,trailing,isf,prefix,ds,trailing,osf))
 vrAinput = "./%s%s" % (vrbase,osf)
-sl.append("3dvolreg -tshift -quintic  -prefix ./%s_vrA%s -base %s[%s] -dfile ./%s_vrA.1D -1Dmatrix_save ./%s_vrmat.aff12.1D %s" % \
-		  (vrbase,osf,vrAinput,basebrik,vrbase,prefix,vrAinput))
+if options.align_base!='':
+	if options.align_base.isdigit():
+		basevol = '%s[%s]' % (vrAinput,options.align_base)
+	else:
+		basevol = options.align_base
+else: 
+	basevol = '%s[%s]' % (vrAinput,basebrik)
+sl.append("3dvolreg -tshift -quintic  -prefix ./%s_vrA%s -base %s -dfile ./%s_vrA.1D -1Dmatrix_save ./%s_vrmat.aff12.1D %s" % \
+		  (vrbase,osf,basevol,vrbase,prefix,vrAinput))
 vrAinput = "./%s_vrA%s" % (vrbase,osf)
 if oblique_mode: 
 	if options.anat!='': sl.append("3dWarp -verb -card2oblique %s[0] -overwrite  -newgrid 1.000000 -prefix ./%s_ob.nii.gz %s/%s | \grep  -A 4 '# mat44 Obliquity Transformation ::'  > %s_obla2e_mat.1D" % (vrAinput,anatprefix,startdir,nsmprage,prefix))
