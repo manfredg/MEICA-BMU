@@ -275,14 +275,14 @@ if oblique_mode:
 	else: sl.append("3dWarp -overwrite -prefix %s -deoblique %s" % (vrAinput,vrAinput))
 sl.append("1dcat './%s_vrA.1D[1..6]{%s..$}' > motion.1D " % (vrbase,basebrik))
 sl.append("3dcalc -float -expr 'a' -a %s[%s] -prefix ./_eBmask%s" % (vrAinput,align_base,osf))
-sl.append("3dAutomask -prefix eBmask%s -peels 3 _eBmask%s" % (osf,osf))
+sl.append("3dAutomask -prefix eBmask%s -dilate 1 -peels 3 _eBmask%s" % (osf,osf))
 e2dsin = prefix+datasets[0]+trailing
 
 # Calculate affine anatomical warp if anatomical provided, then combine motion correction and coregistration parameters 
 if options.anat!='':
 	if grayweight_ok == 1:
 		sl.append("3dSeg -mask eBmask%s -anat _eBmask%s" % (osf,osf))
-		sl.append("3dcalc -float -a Segsy/Posterior+orig[1] -expr 'a' -prefix epigraywt%s" % (osf))
+		sl.append("3dcalc -float -a Segsy/Posterior+orig[2] -expr 'a' -prefix epigraywt%s" % (osf))
 		sl.append("3dcalc -float -a Segsy/AnatUB+orig -b Segsy/Classes+orig -expr 'a*step(b)' -prefix eBbase%s" % (osf))
 		weightline = ' -lpc -weight epigraywt%s -base eBbase%s ' % (osf,osf)
 	elif grayweight_ok == 2:
@@ -343,7 +343,7 @@ for echo_ii in range(len(datasets)):
 		if zeropad_opts!="" : sl.append("3dZeropad %s -prefix _eBvrmask.nii.gz %s_ts+orig[%s]" % (zeropad_opts,dsin,basebrik))
 		sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base _eBvrmask.nii.gz -input _eBvrmask.nii.gz -prefix ./_eBvrmask.nii.gz" % \
 			(align_interp,align_interp,prefix))
-		sl.append("3dAutomask -peels %s -overwrite -prefix eBvrmask%s _eBvrmask%s" % (str(options.maskpeels),osf,osf))
+		sl.append("3dAutomask -dilate 1 -peels %s -overwrite -prefix eBvrmask%s _eBvrmask%s" % (str(options.maskpeels),osf,osf))
 		sl.append("3dBrickStat -mask eBvrmask.nii.gz -percentile 50 1 50  _eBvrmask.nii.gz > gms.1D" )
 		if options.anat!='':
 			sl.append("3dresample -overwrite -rmode NN -dxyz `3dinfo -ad3 eBvrmask.nii.gz` -inset eBvrmask.nii.gz -prefix eBvrmask.nii.gz -master %s" % (abmprage))

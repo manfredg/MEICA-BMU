@@ -570,8 +570,33 @@ def selcomps(comptable):
 			
 	return acc,rej,mid
 	
+#import ipdb
 	
-
+def selcomps(comptable):
+	ctb = comptable[ comptable[:,1].argsort()[::-1],:]
+	ks = ctb[:,1]
+	rs =ctb[ ctb[:,2].argsort()[::-1],2]
+	k_t = ks[getelbowiter(ks)]
+	r_t = rs[getelbowiter(rs)]
+	sel = andb([ctb[:,1]>k_t, ctb[:,2]<r_t])
+	acc = ctb[sel==2,0]
+	rej = ctb[sel!=2,0]
+	mid = np.array([])
+	if not options.nomid:
+		#ipdb.set_trace()
+		ks_z = (ks[sel==2]-ks[sel==2].mean())/ks[sel==2].std()
+		a_v = ctb[sel==2,3:5].sum(axis=1)
+		a_vz = (a_v-a_v.mean())/a_v.std()
+		mid = acc[a_vz-ks_z > 3]
+		#TO DO: Do 2nd pas if mid has Z diff more than 5
+	rej = rej.tolist()
+	mid = mid.tolist()
+	acc = list(set(ctb[:,0].tolist())-set(mid)-set(rej))
+	open('accepted.txt','w').write(','.join([str(int(cc)) for cc in acc]))
+	open('rejected.txt','w').write(','.join([str(int(cc)) for cc in rej]))
+	open('midk_rejected.txt','w').write(','.join([str(int(cc)) for cc in mid]))
+	
+	return acc,rej,mid
 
 def dvars(dv,mud):
 	nx,ny,nz,nt = dv.shape
@@ -643,7 +668,7 @@ def getelbow(ks):
 	return k_min_ind
 
 def getelbowiter(ks,bias=False):
-	rstart = 0 
+	rstart = 1 
 	rend = len(ks)
 	iter = 0
 	if not bias:
@@ -665,7 +690,8 @@ def getelbowiter(ks,bias=False):
 			newel = rstart+getelbow(ks[rstart:rend])
 			rstart = newel-newel/pow(2,iter)
 			rend = newel+(len(ks)-newel)/pow(2,iter)
-	return el
+	if el==0 or el==len(ks)-1: return getelbow(ks)
+	else: return el
 
 def getfbounds(ne):
 	F05s=[None,None,18.5,10.1,7.7,6.6,6.0,5.6,5.3,5.1,5.0]
