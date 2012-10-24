@@ -225,7 +225,7 @@ def get_coeffs(data,mask,X):
 	return out
 
 
-def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.):
+def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.,ret_sfacs=False):
 	"""
 	Usage:
 
@@ -254,6 +254,7 @@ def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.):
 	#Compute variacnes
 	betasm = fmask(betas,mask)
 	betasm = betasm.reshape([np.prod(betasm.shape[0:2]),betasm.shape[2]])
+	
 	#Compute postive variance
 	betasms = betasm.copy()
 	betasms[betasms<0] = 0
@@ -268,7 +269,7 @@ def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.):
 	varlist = np.vstack([posvars,negvars])
 	varlist/=np.sum(varlist)
 	varlist = varlist.T
-
+	
 	#Setup Xmats
 
 	#Model 1
@@ -330,18 +331,14 @@ def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.):
 		#Experimentation
 		#print i, np.average(t2smask,weights=wtsp), np.average(t2smask,weights=wtsn), np.average(s0mask,weights=wtsp), np.average(s0mask,weights=wtsn)
 		
+		#Select dominant component direction and correct sign
 		if kappa_pos>kappa_neg:
 			kappa = kappa_pos
 			rho = rho_pos
 		else:
 			kappa = kappa_neg
 			rho = rho_neg
-
-		#Debug/experimentation
-		#if cc!=-1: ipdb.set_trace()
-		#import ipdb
-		#ipdb.set_trace()
-		#print np.average(s0mask,weights=wts), np.average(t2smask,weights=wts)
+			sfacs[i]=-1
 
 		print "Comp %d Kappa: %f Rho %f" %(i,kappa,rho)
 		comptab[i,0] = i
@@ -362,14 +359,12 @@ def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.):
 
 			niwrite(out,fout,name)
 			os.system('3drefit -sublabel 0 PSC -sublabel 1 F_R2  -sublabel 2 F_SO %s 2> /dev/null > /dev/null'%name)
-
-		#debug
-		#if cc!=-1: return [F_R2,alpha]
-		
-	#ipdb.set_trace()
-		
+					
 	comptab = np.hstack([comptab,varlist])
-	return comptab
+	if ret_sfacs:
+		return comptab,sfacs
+	else:			
+		return comptab
 
 def andb(arrs):
 	result = np.zeros(arrs[0].shape)
@@ -577,13 +572,16 @@ def selcomps(comptable):
 	ks = ctb[:,1]
 	rs =ctb[ ctb[:,2].argsort()[::-1],2]
 	k_t = ks[getelbowiter(ks)]
-	r_t = rs[getelbowiter(rs)]
-	sel = andb([ctb[:,1]>k_t, ctb[:,2]<r_t])
+	try:
+		r_t = rs[getelbowiter(rs)]
+	except:
+		r_t = rs[1+getelbow(rs[1:-2])]
+	sel = andb([ctb[:,1]>=k_t, ctb[:,2]<r_t])
 	acc = ctb[sel==2,0]
 	rej = ctb[sel!=2,0]
 	mid = np.array([])
 	if not options.nomid:
-		#ipdb.set_trace()
+		ipdb.set_trace()
 		ks_z = (ks[sel==2]-ks[sel==2].mean())/ks[sel==2].std()
 		a_v = ctb[sel==2,3:5].sum(axis=1)
 		a_vz = (a_v-a_v.mean())/a_v.std()
@@ -825,22 +823,34 @@ def tedica(dd,cost):
 	eimum = np.array(np.squeeze(unmask(np.array(eim,dtype=np.int).prod(1),mask)),dtype=np.bool)
 	betas = get_coeffs(catim.get_data()-catim.get_data().mean(-1)[:,:,:,np.newaxis],np.tile(mask,(1,1,Ne)),mmix)
 	betas = cat2echos(betas,ne)
-	comptable = fitmodels(betas,t2s,mu,eimum,tes,sig=sig,fout=options.fout,pow=2)
+	comptable,sfacs = fitmodels(betas,t2s,mu,eimum,tes,sig=sig,fout=options.fout,pow=2,ret_sfacs=True)
 	
 	#Resort components by Kappa
-	comptable = comptable[comptable[:,1].argsort()[::-1],:]
+	reorder = comptable[:,1].argsort()[::-1]
+	comptable = comptable[reorder,:]
 	betas = betas[:,:,:,:,list(comptable[:,0])]
 	mmix = mmix[:,list(comptable[:,0])]
 	
-	#Make everything net positive variance
-	varlist = comptable[:,3:5]
-	sfacs = np.ones(varlist.shape[0])
-	sfacs[varlist[:,1]>varlist[:,0]]*=-1
+	#import ipdb
+	#ipdb.set_trace()
+	
+	#Set direction of all components towards max-Kappa
+	sfacs=sfacs[reorder]
+	varlist = comptable.copy()[:,3:5]
+	varlist*=np.vstack([np.ones(sfacs.shape[0]),-1*np.ones(sfacs.shape[0])]).T
+	varlist*=np.vstack([sfacs,sfacs]).T
+	varlist.sort(1)
+	varlist = np.abs(varlist)
 	mmix*=sfacs
 	betas*=sfacs
 	
+	#sfacs = np.ones(varlist.shape[0])
+	#sfacs[varlist[:,1]>varlist[:,0]]*=-1
+	#varlist.sort(1)
+	
 	#Sort pos/neg variances and reassemble comptable
-	varlist.sort(1)
+	
+
 	comptable = np.vstack([np.arange(comptable.shape[0]),comptable[:,1:3].T,varlist[:,1],varlist[:,0]  ]).T
 	
 	return comptable,mmix,smaps,betas

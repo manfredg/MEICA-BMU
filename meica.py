@@ -397,6 +397,7 @@ sl.append("%s%s %s -e %s  -d %s --sourceTEs=%s --kdaw=%s --rdaw=1 --initcost=%s 
 sl.append("#")
 if options.prefix=='': options.prefix=setname
 sl.append("#Copying results to start directory")
+"""
 sl.append("%scp TED/ts_OC.nii %s/%s_tsoc.nii" % (tedflag,startdir,options.prefix))
 sl.append("%scp TED/hik_ts_OC.nii %s/%s_medn.nii" % (tedflag,startdir,options.prefix))
 sl.append("%scp TED/betas_hik_OC.nii %s/%s_mefc.nii" % (tedflag,startdir,options.prefix))
@@ -413,6 +414,26 @@ sl.append("%s3dNotes -h \'%s (%s)\' %s/%s_mefc.nii" % (tedflag,hist_line,note_li
 note_line = "T2* weighted average of ME time series, produced by ME-ICA v2.0 (r5)"
 sl.append("%s3dNotes -h \'%s (%s)\' %s/%s_tsoc.nii" % (tedflag,hist_line,note_line,startdir,options.prefix))
 sl.append("%sgzip -f %s/%s_medn.nii %s/%s_mefc.nii %s/%s_tsoc.nii" % (tedflag,startdir,options.prefix,startdir,options.prefix,startdir,options.prefix))
+"""
+
+sl.append("%scp TED/ts_OC.nii TED/%s_tsoc.nii" % (tedflag,options.prefix))
+sl.append("%scp TED/hik_ts_OC.nii TED/%s_medn.nii" % (tedflag,options.prefix))
+sl.append("%scp TED/betas_hik_OC.nii TED/%s_mefc.nii" % (tedflag,options.prefix))
+sl.append("%scp TED/comp_table.txt %s/%s_ctab.txt" % (tedflag,startdir,options.prefix))
+hist_line = "%s" % (" ".join(sys.argv).replace('"',r"\""))
+note_line = "Denoised timeseries, produced by ME-ICA v2.0 (r5)"
+sl.append("%s3dNotes -h \'%s (%s)\' TED/%s_medn.nii" % (tedflag,hist_line,note_line,options.prefix))
+note_line = "Denoised ICA coeff. set for seed-based FC analysis, produced by ME-ICA v2.0 (r1)"
+sl.append("%s3dNotes -h \'%s (%s)\' TED/%s_mefc.nii" % (tedflag,hist_line,note_line,options.prefix))
+note_line = "T2* weighted average of ME time series, produced by ME-ICA v2.0 (r5)"
+sl.append("%s3dNotes -h \'%s (%s)\' TED/%s_tsoc.nii" % (tedflag,hist_line,note_line,options.prefix))
+if options.anat!='' and options.tlrc!=False:
+	sl.append("%snifti_tool -mod_hdr -mod_field sform_code 2 -mod_field qform_code 2 -infiles TED/%s_tsoc.nii -overwrite" % (tedflag,options.prefix))
+	sl.append("%snifti_tool -mod_hdr -mod_field sform_code 2 -mod_field qform_code 2 -infiles TED/%s_medn.nii -overwrite" % (tedflag,options.prefix))
+	sl.append("%snifti_tool -mod_hdr -mod_field sform_code 2 -mod_field qform_code 2 -infiles TED/%s_mefc.nii -overwrite" % (tedflag,options.prefix))
+sl.append("%sgzip -f TED/%s_medn.nii TED/%s_mefc.nii TED/%s_tsoc.nii" % (tedflag,options.prefix,options.prefix,options.prefix))
+sl.append("%smv TED/%s_medn.nii.gz TED/%s_mefc.nii.gz TED/%s_tsoc.nii.gz %s" % (tedflag,options.prefix,options.prefix,options.prefix,startdir))
+
 
 #Write the preproc script and execute it
 ofh = open('_meica_%s.sh' % setname ,'w')
