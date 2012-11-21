@@ -332,7 +332,7 @@ for echo_ii in range(len(datasets)):
 		tpat_opt = ' -tpattern %s ' % options.tpattern
 	else:
 		tpat_opt = ''
-	sl.append("3dTshift -heptic %s -prefix ./%s_ts+orig %s%s" % (tpat_opt,dsin,indata,osf) )
+	sl.append("3dTshift -slice 0 -heptic %s -prefix ./%s_ts+orig %s%s" % (tpat_opt,dsin,indata,osf) )
 	
 	if oblique_mode and options.anat=="":
 		sl.append("3dWarp -overwrite -deoblique -prefix ./%s_ts+orig ./%s_ts+orig" % (dsin,dsin))
@@ -393,7 +393,7 @@ else: tedflag = ''
 if os.path.exists('%s/meica.libs' % (meicadir)): tedanapath = 'meica.libs/tedana.py'
 else: tedanapath = 'tedana.py'
 sl.append("#\n#TE-Dependence analysis command:")
-sl.append("%s%s %s -e %s  -d %s --sourceTEs=%s --kdaw=%s --rdaw=1 --initcost=%s --finalcost=%s --OC" % (tedflag,sys.executable, '/'.join([meicadir,tedanapath]),options.tes,ica_input,options.sourceTEs,options.daw,options.initcost,options.finalcost))
+sl.append("%s%s %s -e %s  -d %s --sourceTEs=%s --kdaw=%s --rdaw=1 --initcost=%s --finalcost=%s --OC --conv=2.5e-5" % (tedflag,sys.executable, '/'.join([meicadir,tedanapath]),options.tes,ica_input,options.sourceTEs,options.daw,options.initcost,options.finalcost))
 sl.append("#")
 if options.prefix=='': options.prefix=setname
 sl.append("#Copying results to start directory")

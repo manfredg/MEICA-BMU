@@ -26,7 +26,7 @@ import numpy as np
 import nibabel as nib
 from sys import stdout
 #import pdb
-#import ipdb
+import ipdb
 
 F_MAX=500
 Z_MAX = 8
@@ -73,10 +73,6 @@ def niwrite(data,affine, name , header=None):
 	outni = nib.Nifti1Image(data,affine,header=thishead)
 	outni.to_filename(name)
 	print 'done.'
-	
-	
-
-
 
 def cat2echos(data,Ne):
 	"""
@@ -93,18 +89,6 @@ def cat2echos(data,Ne):
 		nt = 1
 
 	return np.reshape(data,(nx,ny,nz,Ne,nt),order='F')
-
-"""
-def cat2echos(data,Ne):
-	"
-	Input:
-	data shape is nx,ny,nz*ne,nt
-
-	Output:
-	data shape is nx,ny,nz,ne,nt 
-	"
-	return np.concatenate([data[:,:,ii*nz:(ii+1)*nz-1,np.newaxis,:] for ii in range(Ne)],axis=3)
-"""
 
 def makemask(cdat):
 
@@ -224,37 +208,36 @@ def get_coeffs(data,mask,X):
 
 	return out
 
+def andb(arrs):
+	result = np.zeros(arrs[0].shape)
+	for aa in arrs: result+=np.array(aa,dtype=np.int)
+	return result
 
-def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.,ret_sfacs=False):
+def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.):
 	"""
-	Usage:
-
-	fitmodels(betas,t2s,mu,mask,tes)
-
-	Input:
-	betas,mu,mask are all (nx,ny,nz,Ne,nc) ndarrays
-	t2s is a (nx,ny,nz) ndarray
-	tes is a 1d array
-	"""
+		Usage:
+		
+		fitmodels(betas,t2s,mu,mask,tes)
+		
+		Input:
+		betas,mu,mask are all (nx,ny,nz,Ne,nc) ndarrays
+		t2s is a (nx,ny,nz) ndarray
+		tes is a 1d array
+		"""
 	fouts  = []
 	nx,ny,nz,Ne,nc = betas.shape
 	Nm = mask.sum()
-
+	
 	tes = np.reshape(tes,(Ne,1))
 	mumask   = fmask(mu,mask)
 	t2smask  = fmask(t2s,mask)
-	s0mask = fmask(s0,mask)
 	betamask = fmask(betas,mask)
-	if options.e2d==None: e2d=np.floor(ne/2)+1
-
+	
 	comptab = np.zeros((nc,3))
-
-	Z_MAX = 10
-
+	
 	#Compute variacnes
 	betasm = fmask(betas,mask)
 	betasm = betasm.reshape([np.prod(betasm.shape[0:2]),betasm.shape[2]])
-	
 	#Compute postive variance
 	betasms = betasm.copy()
 	betasms[betasms<0] = 0
@@ -270,323 +253,134 @@ def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.,ret_sfacs=Fa
 	varlist/=np.sum(varlist)
 	varlist = varlist.T
 	
+	#import ipdb
+	#ipdb.set_trace()
+	
 	#Setup Xmats
-
+	
 	#Model 1
 	X1 = mumask.transpose()
-
+	
 	#Model 2
 	X2 = np.tile(tes,(1,Nm))*mumask.transpose()/t2smask.transpose()
-
-	if cc!=-1: comps=list(cc)
+	
+	if cc!=-1: comps=[cc]
 	else: comps=range(nc)
 	
 	if sig!=None: sigmask=fmask(sig,mask).transpose()
 	
 	for i in comps:
-
+		
 		#size of B is (nc, nx*ny*nz)
 		B = betamask[:,:,i].transpose()
 		alpha = (np.abs(B)**2).sum(axis=0)
-
+		
 		#S0 Model
 		coeffs_S0 = (B*X1).sum(axis=0)/(X1**2).sum(axis=0)
 		SSE_S0 = (B - X1*np.tile(coeffs_S0,(Ne,1)))**2
 		SSE_S0 = SSE_S0.sum(axis=0)
-
+		
 		F_S0 = (alpha - SSE_S0)*2/(SSE_S0)
 		#F_S0 = (SSTR_S0)*2/(alpha - SSTR_S0)
-
+		
 		#R2 Model
 		coeffs_R2 = (B*X2).sum(axis=0)/(X2**2).sum(axis=0)
 		SSE_R2 = (B - X2*np.tile(coeffs_R2,(Ne,1)))**2
 		SSE_R2 = SSE_R2.sum(axis=0)
 		F_R2 = (alpha - SSE_R2)*2/(SSE_R2)
-
+		
+		#ipdb.set_trace()
+		
 		Bn = B/sigmask
 		Bz=(Bn-np.tile(Bn.mean(axis=-1),(Bn.shape[1],1)).T)/np.tile(Bn.std(axis=-1),(Bn.shape[1],1)).T
 		wts = Bz.mean(axis=0)*sfacs[i]
-
+		
+		
+		#wts=np.abs(wts)
+		wts[wts<0]=0
+		wts[wts>Z_MAX]=Z_MAX
+		wts = np.power(wts,pow)
 		F_R2[F_R2>F_MAX]=F_MAX
 		F_S0[F_S0>F_MAX]=F_MAX
 		
-		#Positive weights
-		wtsp=wts.copy()
-		wtsp[wtsp<0]=0
-		wtsp[wtsp>Z_MAX]=Z_MAX
-		wtsp = np.power(wtsp,pow)
-
-		kappa_pos = np.average(F_R2,weights = wtsp)
-		rho_pos   = np.average(F_S0,weights = wtsp)		
-
-		#Negative weights
-		wtsn=wts.copy()
-		wtsn[wtsn>0]=0
-		wtsn[wtsn>Z_MAX]=Z_MAX
-		wtsn = np.power(wtsn,pow)
-
-		kappa_neg = np.average(F_R2,weights = wtsn)
-		rho_neg  = np.average(F_S0,weights = wtsn)
+		kappa = np.average(F_R2,weights = wts)
+		rho   = np.average(F_S0,weights = wts)		
 		
-		#Experimentation
-		#print i, np.average(t2smask,weights=wtsp), np.average(t2smask,weights=wtsn), np.average(s0mask,weights=wtsp), np.average(s0mask,weights=wtsn)
-		
-		#Select dominant component direction and correct sign
-		if kappa_pos>kappa_neg:
-			kappa = kappa_pos
-			rho = rho_pos
-		else:
-			kappa = kappa_neg
-			rho = rho_neg
-			sfacs[i]=-1
-
 		print "Comp %d Kappa: %f Rho %f" %(i,kappa,rho)
 		comptab[i,0] = i
 		comptab[i,1] = kappa
 		comptab[i,2] = rho
-
+		
 		# Output Voxelwise F-Stats. "fout" is the affine transformation
 		if fout is not None:
 			
 			out = np.zeros((nx,ny,nz,3))
 			name = "cc%.3d.nii"%i
 			
-			Bpsc = 100.*B.T[:,e2d-1]/mumask[:,e2d-1]
+			Bpsc = 100.*B.T[:,options.e2d-1]/mumask[:,options.e2d-1]
 			
 			out[:,:,:,0] = np.squeeze(unmask(Bpsc,mask))*sfacs[i]
 			out[:,:,:,1] = np.squeeze(unmask(F_R2,mask))
 			out[:,:,:,2] = np.squeeze(unmask(F_S0,mask))
-
+			
 			niwrite(out,fout,name)
 			os.system('3drefit -sublabel 0 PSC -sublabel 1 F_R2  -sublabel 2 F_SO %s 2> /dev/null > /dev/null'%name)
-					
+		
+		#debug
+		if cc!=-1: return [F_R2,alpha]
+	
 	comptab = np.hstack([comptab,varlist])
-	if ret_sfacs:
-		return comptab,sfacs
-	else:			
-		return comptab
+	return comptab
 
-def andb(arrs):
-	result = np.zeros(arrs[0].shape)
-	for aa in arrs: result+=np.array(aa,dtype=np.int)
-	return result
-
-	
-def selcomps(comptable,hifm=True):
-
-	fmin,fmid,fmax = getfbounds(ne)
-	ctb = comptable[comptable[:,1].argsort()[::-1],:]
-
-	accvprez = ctb[ctb[:,1]>100,3:5].sum(axis=1)
-	accvprez = (accvprez-accvprez.mean())/accvprez.std()
-	accrprez = ctb[ctb[:,1]>100,2]
-	accrprez = (accrprez-accrprez.mean())/accrprez.std()
-	accspre = np.array(accvprez+accrprez>3,dtype=np.int)+np.array(ctb[ctb[:,1]>100,3:5].sum(axis=1)>5,dtype=np.int)
-	
-	print accvprez,accrprez
-
-	acc = list(ctb[ctb[:,1]>100,0][accspre<2])
-	rej = list(ctb[ctb[:,2]>fmid,0])
-	mid = list(set(range(ctb.shape[0]))-set(acc)-set(rej))
-	
-	if len(acc) <= 15 and ctb[1,1]<150: lowq=1
-	else: lowq=0
-		
-	ctbm = comptable[mid]
-	ctbm = ctbm[ctbm[:,1].argsort()[::-1],:]
-	rej+=list(ctbm[getelbow(ctbm[:,1])-1:,0])
-	mid=list(ctbm[:getelbow(ctbm[:,1])-1,0])
-
-	betasm = fmask(betas,mask)
-	vars = (betasm.reshape(np.prod(betasm.shape[0:2]),betasm.shape[2])**2).sum(0)
-	varpers  = vars/vars.sum()
-	midvarthr = vars[acc].mean()
-	if lowq==0: midrhothr = comptable[acc,2].mean()+3*comptable[acc,2].std()
-	if lowq==1: midrhothr = min(comptable[:,2].mean(),fmid,comptable[getelbow(comptable[:,2][::-1])-1,1])
-
-	#import ipdb
-	#ipdb.set_trace()
-
-	addacc = np.array(mid)[andb([comptable[mid,2]<midrhothr,vars[mid]<midvarthr])==2]
-	if len(addacc)!=0: acc+=list(addacc)
-	mid = list(set(range(ctb.shape[0]))-set(acc)-set(rej))
-	
-	np.savetxt('accepted.txt',acc,fmt='%d',delimiter=',')
-	np.savetxt('rejected.txt',rej,fmt='%d',delimiter=',')
-	np.savetxt('midk_rejected.txt',mid,fmt='%d',delimiter=',')
-	
-	return acc,rej,mid
-	
-	
-def selcomps(comptable,hifm=True):
-	
-	F03s=[None,None,31.8,15.2,10.9,9.0,8.0,7.4,6.9]
-	fmin,fmid,fmax = getfbounds(ne)
-	ctb = comptable[comptable[:,1].argsort()[::-1],:]
-
-	#Keep what we think is really good (K>100, Rho<fmin*10%_fudge_factor, Var<=3%)
-	acc = list(ctb[andb([ctb[:,1]>100,ctb[:,2]<=fmin*1.1,ctb[:,3:5].sum(axis=1)<=0.03])==3,0])
-	rej = list(ctb[ctb[:,2]>fmid,0])
-	mid = list(set(ctb[:,0])-set(acc)-set(rej))
-
-	#import ipdb
-	#ipdb.set_trace()
-	
-	#Estimate K elbow
-	#Get rid of high rho (we know its bad), filter high rho first to sample from large distribution
-	ctbm = comptable[mid]
-	ctbm = ctbm[ctbm[:,2].argsort(),:]
-	rhothr = min(ctbm[getelbow(ctbm[:,2]),2],F03s[ne-1])
-	mid=list(ctbm[ctbm[:,2]<rhothr,0])
-	rej+=list(ctbm[ctbm[:,2]>=rhothr,0])
-	
-	#Get rid of low kappa (Gaussian noise or otherwise uninteresting)
-	ctbm = comptable[mid]
-	ctbm = ctbm[ctbm[:,1].argsort()[::-1],:]
-	kappathr = max(ctbm[getelbow(ctbm[:,1]),1],fmid)
-	mid=list(ctbm[ctbm[:,1]>=kappathr,0])
-	rej+=list(ctbm[ctbm[:,1]<kappathr,0])
-
-	#Scan over different powers for Kappa
-	ctb_p2 = ctb[acc+mid]
-	ctb_p10 = fitmodels(betas,t2s,mu,eimum,tes,sig=sig,fout=options.fout,pow=10,cc=acc+mid)
-	
-	#Pull Kappa and Rho for acc+mid components
-	k_p2 = ctb_p2[ctb_p2[:,1]!=0,1]
-	k_p2_z = (k_p2-k_p2.mean())/k_p2.std()
-	k_p10 = ctb_p10[ctb_p10[:,1]!=0,1]
-	k_p10_z = (k_p10-k_p10.mean())/k_p10.std()
-	r_p2 = ctb_p2[ctb_p2[:,2]!=0,2]
-	r_p2_z = (r_p2-r_p2.mean())/r_p2.std()
-	r_p10 = ctb_p10[ctb_p10[:,2]!=0,2]
-	r_p10_z = (r_p10-r_p10.mean())/r_p10.std()
-	
-	#Check Kappa/Rho z-score shifting at higher powers for components with very high variance
-	varthr = 100*(ctb[acc,3:5].sum(axis=1).mean()+1.5*ctb[acc,3:5].sum(axis=1).std())
-	print varthr
-	acc+=mid; mid = []
-	mid+=list(ctb[andb([ctb[acc,3:5].sum(axis=1)*100>varthr,k_p2_z-k_p10_z > 1.5])==2,0])
-	mid+=list(ctb[andb([ctb[acc,3:5].sum(axis=1)*100>varthr,r_p2_z-r_p10_z < -1.5])==2,0])
-	mid=list(set(mid))
-	
-	acc = sorted(list(set(ctb[:,0])-set(mid)-set(rej)))
-
-	#import ipdb
-	#ipdb.set_trace()
-
-	np.savetxt('accepted.txt',np.array(acc),fmt='%d',delimiter=',')
-	np.savetxt('rejected.txt',np.array(rej),fmt='%d',delimiter=',')
-	np.savetxt('midk_rejected.txt',np.array(mid),fmt='%d',delimiter=',')
-	
-	return acc,rej,mid
-	
-#import ipdb
 
 def selcomps(comptable):
-	
+	midfac = int(options.midfac)
 	fmin,fmid,fmax = getfbounds(ne)
-	
-	ctbo = comptable[comptable[:,1].argsort()[::-1],:]
-	ctb = np.vstack([np.arange(ctbo.shape[0]),ctbo[:,1:].T]).T
-	
-	#Scan over different powers for Kappa
-	ctb_p2 = ctb
-	ctb_p10 = fitmodels(betas,t2s,mu,eimum,tes,sig=sig,fout=options.fout,pow=10,cc=(ctbo[:,0]).tolist())
-	
-	#Reject components with increasing Rho score and/or decreasing Kappa score
-	#rej = ctb_p2[andb([ctb_p2[:,2]<fmid,ctb_p10[:,2]<fmin,ctb_p2[:,1]>fmid,ctb_p10[:,1]>fmax])<4,0]		
-	
-	acc = ctb_p2[andb([ctb_p2[:,2]<fmid,ctb_p10[:,2]<fmid,ctb_p2[:,1]>fmax,ctb_p10[:,1]>fmax])==4,0].tolist()
-	acc+= ctb_p2[andb([ctb_p2[:,2]<fmid,ctb_p10[:,2]<fmin,ctb_p2[:,1]>fmid,ctb_p10[:,1]>fmax])==4,0].tolist()
-	acc = sorted(list(set(acc)))
-	rej = sorted(list(set(ctb[:,0])-set(acc)))
-	
-	mid = []
-	if not options.nomid:
-		for iter in range(2):
-			#Compute relative measures of Kappa and Rho
-			k_p2 = ctb_p2[acc,1]
-			k_p2_z = (k_p2-k_p2.mean())/k_p2.std()
-			k_p10 = ctb_p10[acc,1]
-			k_p10_z = (k_p10-k_p10.mean())/k_p10.std()
-			r_p2 = ctb_p2[acc,2]
-			r_p2_z = (r_p2-r_p2.mean())/r_p2.std()
-			r_p10 = ctb_p10[acc,2]
-			r_p10_z = (r_p10-r_p10.mean())/r_p10.std()
-			v_ = ctb_p2[acc,3:5].sum(axis=1)
-			v_z = (v_-v_.mean())/v_.std()
-			n_ = ctb_p2[acc,0]
-			
-			#Reject low K, high variance components, absolute, shift, ratio methods		
-			#mid += (n_[andb([v_z>midfac,andb([k_p2_z < -midfac,k_p10_z < -midfac,(k_p2_z-k_p10_z) > midfac,(r_p2_z-r_p10_z) < -midfac,v_z/k_p2_z < -midfac])>0])==2]).tolist()
-			#Reject low K, high variance components, absolute, ratio methods
-			midkeep = (n_[andb([k_p2_z > -1,k_p10_z > -1,r_p2_z<1,r_p10_z<1])==4]).tolist()
-			midcan = (n_[andb([v_z>1.5,andb([k_p2_z < -2,k_p10_z < -2,v_z-k_p2_z > 3])>0])==2]).tolist()
-			midnew = list(set(midcan)-set(midkeep))
-			if midnew==[]: break
-			#ipdb.set_trace()
-			mid+=midnew
-			acc = sorted(list(set(ctb[:,0])-set(rej)-set(mid)))
-		
-	
-	acc = sorted(ctbo[acc,0].tolist())
-	mid = sorted(ctbo[mid,0].tolist())
-	rej = sorted(ctbo[rej,0].tolist())
-	
-
-	
-	#import ipdb
-	#ipdb.set_trace()
-	
-	return acc,rej,mid
-
-def selcomps(comptable):
-	
-	ks = comptable[:,1]
-	rs =comptable[ comptable[:,2].argsort()[::-1],2]
-	k_t = ks[getelbowiter(ks)]
-	r_t = rs[getelbowiter(rs)]
-	sel = andb([comptable[:,1]>k_t, comptable[:,2]<r_t])
-	acc = comptable[sel==2,0]
-	rej = comptable[sel!=2,0]
-	mid = np.array([])
-	if not options.nomid:
-		ks_z = (ks[acc.tolist()]-ks[acc.tolist()].mean())/ks[acc.tolist()].std()
-		a_v = comptable[acc.tolist(),3:5].sum(axis=1)
-		a_vz = (a_v-a_v.mean())/a_v.std()
-		mid = acc[a_vz-ks_z > 3]
-	rej = rej.tolist()
-	mid = mid.tolist()
-	acc = list(set(comptable[:,0].tolist())-set(mid)-set(rej))
-	
-	open('accepted.txt','w').write(','.join([str(int(cc)) for cc in acc]))
-	open('rejected.txt','w').write(','.join([str(int(cc)) for cc in rej]))
-	open('midk_rejected.txt','w').write(','.join([str(int(cc)) for cc in mid]))
-			
-	return acc,rej,mid
-	
-#import ipdb
-	
-def selcomps(comptable):
 	ctb = comptable[ comptable[:,1].argsort()[::-1],:]
 	ks = ctb[:,1]
 	rs =ctb[ ctb[:,2].argsort()[::-1],2]
-	k_t = ks[getelbowiter(ks)]
+	#ipdb.set_trace()
+	ks_lim = ks[andb([ks<max(ks),ks>fmid])==2]
+	rs_lim = rs[andb([rs<max(fmid,rs[getelbow(rs)]),rs>fmin])==2]
+	ks_lim.sort()
+	rs_lim.sort()
 	try:
-		r_t = rs[getelbowiter(rs)]
+		k_t = ks_lim[getelbowiter(ks_lim)]
+		r_t = rs_lim[getelbowiter(rs_lim)]
 	except:
-		r_t = rs[1+getelbow(rs[1:-2])]
+		k_t = ks_lim[getelbow(ks_lim)-1]
+		r_t = rs_lim[getelbow(rs_lim)+1]
+	if r_t>fmid: r_t = (r_t+fmin)/2
+	print k_t,r_t
 	sel = andb([ctb[:,1]>=k_t, ctb[:,2]<r_t])
 	acc = ctb[sel==2,0]
 	rej = ctb[sel!=2,0]
 	mid = np.array([])
-	if not options.nomid:
-		ipdb.set_trace()
-		ks_z = (ks[sel==2]-ks[sel==2].mean())/ks[sel==2].std()
+	if not midfac==0:
+		#ipdb.set_trace()
+		#First pass
+		ks_v = ks[sel==2]
 		a_v = ctb[sel==2,3:5].sum(axis=1)
+		ks_z = (ks_v-ks_v.mean())/ks_v.std()
 		a_vz = (a_v-a_v.mean())/a_v.std()
-		mid = acc[a_vz-ks_z > 3]
-		#TO DO: Do 2nd pas if mid has Z diff more than 5
+		z_dif_1 = a_vz-ks_z
+		mid = acc[z_dif_1 > 5]
+		#Second pass
+		if mid.shape[0]>0:
+			acc = np.array(list(set(ctb[:,0].tolist())-set(mid)-set(rej)))
+			ks_v = ks_v[z_dif_1<5]
+			a_v = a_v[z_dif_1<5]
+			ks_z = (ks_v-ks_v.mean())/ks_v.std()
+			a_vz = (a_v-a_v.mean())/a_v.std()
+			z_dif_2 = a_vz-ks_z
+			mid = np.hstack([mid,acc[z_dif_2>midfac]])
+		else:
+			ks_v = ks[sel==2]
+			a_v = ctb[sel==2,3:5].sum(axis=1)
+			ks_z = (ks_v-ks_v.mean())/ks_v.std()
+			a_vz = (a_v-a_v.mean())/a_v.std()
+			z_dif_1 = a_vz-ks_z
+			mid = acc[z_dif_1 > midfac]
 	rej = rej.tolist()
 	mid = mid.tolist()
 	acc = list(set(ctb[:,0].tolist())-set(mid)-set(rej))
@@ -621,7 +415,6 @@ def dvars(dv,mud):
 	#Threshold differentials with extreme values, compute DVARS
 	return np.sqrt(np.mean(dpdt[:,dpdt_mask]**2,1))
 
-	
 def optcom(data,t2s,tes,mask):
 	"""
 	out = optcom(data,t2s)
@@ -708,7 +501,6 @@ def eimask(dd,ees=None):
 		imask[dd[:,ee,:].mean(1) > lthr,ee]=1
 		imask[dd[:,ee,:].mean(1) > hthr,ee]=0
 	return imask
-
 
 def tedpca(ste=0):
 	nx,ny,nz,ne,nt = catd.shape
@@ -818,39 +610,26 @@ def tedica(dd,cost):
 	mmix = (mmix-mmix.mean(0))/mmix.std(0)
 	
 	#Compute K and Rho for ICA compos
-	global eim,eimum
 	eim = eimask(fmask(cat2echos(catim.get_data(),ne),mask))==1
 	eimum = np.array(np.squeeze(unmask(np.array(eim,dtype=np.int).prod(1),mask)),dtype=np.bool)
 	betas = get_coeffs(catim.get_data()-catim.get_data().mean(-1)[:,:,:,np.newaxis],np.tile(mask,(1,1,Ne)),mmix)
 	betas = cat2echos(betas,ne)
-	comptable,sfacs = fitmodels(betas,t2s,mu,eimum,tes,sig=sig,fout=options.fout,pow=2,ret_sfacs=True)
+	comptable = fitmodels(betas,t2s,mu,eimum,tes,sig=sig,fout=options.fout,pow=2)
 	
 	#Resort components by Kappa
-	reorder = comptable[:,1].argsort()[::-1]
-	comptable = comptable[reorder,:]
+	comptable = comptable[comptable[:,1].argsort()[::-1],:]
 	betas = betas[:,:,:,:,list(comptable[:,0])]
 	mmix = mmix[:,list(comptable[:,0])]
 	
-	#import ipdb
-	#ipdb.set_trace()
-	
-	#Set direction of all components towards max-Kappa
-	sfacs=sfacs[reorder]
-	varlist = comptable.copy()[:,3:5]
-	varlist*=np.vstack([np.ones(sfacs.shape[0]),-1*np.ones(sfacs.shape[0])]).T
-	varlist*=np.vstack([sfacs,sfacs]).T
-	varlist.sort(1)
-	varlist = np.abs(varlist)
+	#Make everything net positive variance
+	varlist = comptable[:,3:5]
+	sfacs = np.ones(varlist.shape[0])
+	sfacs[varlist[:,1]>varlist[:,0]]*=-1
 	mmix*=sfacs
 	betas*=sfacs
 	
-	#sfacs = np.ones(varlist.shape[0])
-	#sfacs[varlist[:,1]>varlist[:,0]]*=-1
-	#varlist.sort(1)
-	
 	#Sort pos/neg variances and reassemble comptable
-	
-
+	varlist.sort(1)
 	comptable = np.vstack([np.arange(comptable.shape[0]),comptable[:,1:3].T,varlist[:,1],varlist[:,0]  ]).T
 	
 	return comptable,mmix,smaps,betas
@@ -889,22 +668,8 @@ def writefeats(cbetas,comptable,mmix,suffix=''):
 	cbetam = cbetam/fmask(zfac,mask)[:,np.newaxis]
 	cbetam[edm.mean(-1)<1,:] = 0
 	
-	#Compute positive variance
-	#cbetams = cbetam.copy()
-	#cbetams[cbetams<0] = 0
-	#posvars = (cbetams**2).sum(0)
-	#Compute positive variance
-	#cbetams = cbetam.copy()
-	#cbetams[cbetams>0] = 0
-	#negvars = (cbetams**2).sum(0)	
-	
-	#sfacs = np.ones(posvars.shape)
-	#sfacs[negvars>posvars]*=-1
-	#cbetam*=sfacs
-	
 	niwrite(unmask(cbetam,mask),aff,'_'.join(['feats',suffix])+'.nii')
 	
-
 def writect(comptable,ctname=''):
 	nc = comptable.shape[0]
 	sortab = comptable[comptable[:,1].argsort()[::-1],:]
@@ -935,7 +700,7 @@ if __name__=='__main__':
 	parser.add_option('',"--mix",dest='mixm',help="Mixing matrix. If not provided, ME-PCA & ME-ICA (MDP) is done.",default=None)
 	parser.add_option('',"--sourceTEs",dest='ste',help="Source TEs for models. ex: -ste 2,3 ; -ste 0 for all, -1 for opt. com. Default 0.",default=0)	
 	parser.add_option('',"--denoiseTE",dest='e2d',help="TE to denoise. Default middle",default=None)	
-	parser.add_option('',"--nomid",dest='nomid',action='store_true',help="Do not infer artifact T2* sources (i.e. draining veins)",default=False)	
+	parser.add_option('',"--midfac",dest='midfac',action='store_true',help="Elbow filter factor, Z-units. 0=off,default=4,enhanced=3",default=4)
 	parser.add_option('',"--repave",dest='repave',help="Repeat ME-ICA n times and average hi K time series.",default=1)
 	parser.add_option('',"--multicost",dest='multicost',help="Repeat ME-ICA with mult. initial costs and average. ex: --multicost pow3,gaus,skew",default="")
 	parser.add_option('',"--initcost",dest='initcost',help="Initial cost func. for ICA: pow3,tanh(default),gaus,skew",default='tanh')
