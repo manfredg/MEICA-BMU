@@ -357,7 +357,6 @@ def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.):
 	return comptab
 
 def selcomps(comptable):
-	midfac = int(options.midfac)
 	fmin,fmid,fmax = getfbounds(ne)
 	ctb = comptable[ comptable[:,1].argsort()[::-1],:]
 	ks = ctb[:,1]
@@ -616,15 +615,12 @@ if __name__=='__main__':
 	parser.add_option('',"--dmix",dest='dmix',help="Design matrix to test for TE-dep. after denoising (serial/greedy simple regression)",default='')
 	parser.add_option('',"--sourceTEs",dest='ste',help="Source TEs for models. ex: -ste 2,3 ; -ste 0 for all, -1 for opt. com. Default 0.",default=0)	
 	parser.add_option('',"--denoiseTE",dest='e2d',help="TE to denoise. Default middle",default=None)	
-	parser.add_option('',"--midfac",dest='midfac',action='store_true',help="Elbow filter factor, Z-units. 0=off,default=4,enhanced=3",default=4)
 	parser.add_option('',"--initcost",dest='initcost',help="Initial cost func. for ICA: pow3,tanh(default),gaus,skew",default='tanh')
 	parser.add_option('',"--finalcost",dest='finalcost',help="Final cost func, same opts. as initial",default='tanh')	
 	parser.add_option('',"--stabilize",dest='stabilize',action='store_true',help="Stabilize convergence by reducing dimensionality, for low quality data",default=False)	
 	parser.add_option('',"--conv",dest='conv',help="Convergence limit. Default 1e-5",default='1e-5')
 	parser.add_option('',"--kdaw",dest='kdaw',help="Dimensionality augmentation weight (Kappa). Default 0. -1 for low-dimensional ICA",default=0.)
 	parser.add_option('',"--rdaw",dest='rdaw',help="Dimensionality augmentation weight (Rho). Default 0. -1 for low-dimensional ICA",default=0.)
-	parser.add_option('',"--simpel",dest='simpel',help="Kappa/Rho threshold from simple elbow detection. Good for low tSNR.",action='store_true',default=False)
-	parser.add_option('',"--slign",dest='slign',help="Slices to ignore. 0-indexed. ex: --slign=0,1,2. Default none.",default=None)
 	parser.add_option('',"--OC",dest='OC',help="Output optimally combined time series and features",action="store_true",default=False)
 	parser.add_option('',"--fout",dest='fout',help="Output Voxelwise Kappa/Rho Maps",action="store_true",default=False)
 	parser.add_option('',"--label",dest='label',help="Label for output directory.",default=None)
@@ -647,9 +643,6 @@ if __name__=='__main__':
 	aff = catim.get_affine()
 	catd = cat2echos(catim.get_data(),ne)
 	nx,ny,nz,Ne,nt = catd.shape
-	if options.slign!=None:
-		slign = [int(ss) for ss in options.slign.split(',')]
-		catd[:,:,slign,:,:] = 0
 	mu  = catd.mean(axis=-1)
 	sig  = catd.std(axis=-1)
 	if options.fout: options.fout = aff
