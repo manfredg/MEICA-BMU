@@ -26,7 +26,7 @@ import numpy as np
 import nibabel as nib
 from sys import stdout
 #import pdb
-import ipdb
+#import ipdb
 
 F_MAX=500
 Z_MAX = 8
@@ -87,8 +87,22 @@ def cat2echos(data,Ne):
 		nt = data.shape[3]
 	else:
 		nt = 1
-
 	return np.reshape(data,(nx,ny,nz,Ne,nt),order='F')
+
+def uncat2echos(data,Ne):
+	"""
+	uncat2echos(data,Ne)
+
+	Input:
+	data shape is (nx,ny,Ne,nz,nt)
+	"""
+    	nx,ny = data.shape[0:2]
+	nz = data.shape[2]*Ne
+	if len(data.shape) >4:
+		nt = data.shape[4]
+	else:
+		nt = 1
+	return np.reshape(data,(nx,ny,nz,nt),order='F')
 
 def makemask(cdat):
 
@@ -188,7 +202,7 @@ def t2smap(catd,mask,tes):
 	head.set_data_shape((nx,ny,nz,2))
 	vecwrite(out,'t2s.nii',aff)
 
-def get_coeffs(data,mask,X):
+def get_coeffs(data,mask,X,add_const=False):
 	"""
 	get_coeffs(data,X)
 
@@ -203,10 +217,18 @@ def get_coeffs(data,mask,X):
 	out  has shape (nx,ny,nz,nc)
 	""" 
 	mdata = fmask(data,mask).transpose()
+        
+        X=np.atleast_2d(X)
+        if X.shape[0]==1: X=X.T
+        Xones = np.atleast_2d(np.ones(np.min(mdata.shape))).T
+        if add_const: X = np.hstack([X,Xones])
+
 	tmpbetas = np.linalg.lstsq(X,mdata)[0].transpose()
+        if add_const: tmpbetas = tmpbetas[:,:-1]
 	out = unmask(tmpbetas,mask)
 
 	return out
+
 
 def andb(arrs):
 	result = np.zeros(arrs[0].shape)
@@ -215,15 +237,15 @@ def andb(arrs):
 
 def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.):
 	"""
-		Usage:
-		
-		fitmodels(betas,t2s,mu,mask,tes)
-		
-		Input:
-		betas,mu,mask are all (nx,ny,nz,Ne,nc) ndarrays
-		t2s is a (nx,ny,nz) ndarray
-		tes is a 1d array
-		"""
+   	Usage:
+   	
+   	fitmodels(betas,t2s,mu,mask,tes)
+	
+   	Input:
+   	betas,mu,mask are all (nx,ny,nz,Ne,nc) ndarrays
+   	t2s is a (nx,ny,nz) ndarray
+   	tes is a 1d array
+   	"""
 	fouts  = []
 	nx,ny,nz,Ne,nc = betas.shape
 	Nm = mask.sum()
@@ -237,6 +259,7 @@ def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.):
 	
 	#Compute variacnes
 	betasm = fmask(betas,mask)
+	if betas.shape[-1]==1: betasm = np.atleast_3d(betasm)
 	betasm = betasm.reshape([np.prod(betasm.shape[0:2]),betasm.shape[2]])
 	#Compute postive variance
 	betasms = betasm.copy()
@@ -272,7 +295,7 @@ def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.):
 	for i in comps:
 		
 		#size of B is (nc, nx*ny*nz)
-		B = betamask[:,:,i].transpose()
+		B = np.atleast_3d(betamask)[:,:,i].transpose()
 		alpha = (np.abs(B)**2).sum(axis=0)
 		
 		#S0 Model
@@ -292,12 +315,13 @@ def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.):
 		#ipdb.set_trace()
 		
 		Bn = B/sigmask
-		Bz=(Bn-np.tile(Bn.mean(axis=-1),(Bn.shape[1],1)).T)/np.tile(Bn.std(axis=-1),(Bn.shape[1],1)).T
+		#Bz=(Bn-np.tile(Bn.mean(axis=-1),(Bn.shape[1],1)).T)/np.tile(Bn.std(axis=-1),(Bn.shape[1],1)).T
+		Bz=Bn/np.tile(Bn.std(axis=-1),(Bn.shape[1],1)).T
 		wts = Bz.mean(axis=0)*sfacs[i]
 		
 		
-		#wts=np.abs(wts)
-		wts[wts<0]=0
+		wts=np.abs(wts)
+		#wts[wts<0]=0
 		wts[wts>Z_MAX]=Z_MAX
 		wts = np.power(wts,pow)
 		F_R2[F_R2>F_MAX]=F_MAX
@@ -332,88 +356,24 @@ def fitmodels(betas,t2s,mu,mask,tes,cc=-1,sig=None,fout=None,pow=2.):
 	comptab = np.hstack([comptab,varlist])
 	return comptab
 
-
 def selcomps(comptable):
 	midfac = int(options.midfac)
 	fmin,fmid,fmax = getfbounds(ne)
 	ctb = comptable[ comptable[:,1].argsort()[::-1],:]
 	ks = ctb[:,1]
 	rs =ctb[ ctb[:,2].argsort()[::-1],2]
-	#ipdb.set_trace()
-	ks_lim = ks[andb([ks<max(ks),ks>fmid])==2]
-	rs_lim = rs[andb([rs<max(fmid,rs[getelbow(rs)]),rs>fmin])==2]
-	ks_lim.sort()
-	rs_lim.sort()
-	try:
-		k_t = ks_lim[getelbowiter(ks_lim)]
-		r_t = rs_lim[getelbowiter(rs_lim)]
-	except:
-		k_t = ks_lim[getelbow(ks_lim)-1]
-		r_t = rs_lim[getelbow(rs_lim)+1]
-	if r_t>fmid: r_t = (r_t+fmin)/2
-	print k_t,r_t
+	k_t = ks[getelbow(ks)+1]
+	r_t = rs[getelbow(rs)+1]
 	sel = andb([ctb[:,1]>=k_t, ctb[:,2]<r_t])
 	acc = ctb[sel==2,0]
 	rej = ctb[sel!=2,0]
 	mid = np.array([])
-	if not midfac==0:
-		#ipdb.set_trace()
-		#First pass
-		ks_v = ks[sel==2]
-		a_v = ctb[sel==2,3:5].sum(axis=1)
-		ks_z = (ks_v-ks_v.mean())/ks_v.std()
-		a_vz = (a_v-a_v.mean())/a_v.std()
-		z_dif_1 = a_vz-ks_z
-		mid = acc[z_dif_1 > 5]
-		#Second pass
-		if mid.shape[0]>0:
-			acc = np.array(list(set(ctb[:,0].tolist())-set(mid)-set(rej)))
-			ks_v = ks_v[z_dif_1<5]
-			a_v = a_v[z_dif_1<5]
-			ks_z = (ks_v-ks_v.mean())/ks_v.std()
-			a_vz = (a_v-a_v.mean())/a_v.std()
-			z_dif_2 = a_vz-ks_z
-			mid = np.hstack([mid,acc[z_dif_2>midfac]])
-		else:
-			ks_v = ks[sel==2]
-			a_v = ctb[sel==2,3:5].sum(axis=1)
-			ks_z = (ks_v-ks_v.mean())/ks_v.std()
-			a_vz = (a_v-a_v.mean())/a_v.std()
-			z_dif_1 = a_vz-ks_z
-			mid = acc[z_dif_1 > midfac]
-	rej = rej.tolist()
-	mid = mid.tolist()
-	acc = list(set(ctb[:,0].tolist())-set(mid)-set(rej))
+	#ipdb.set_trace()
+	#(ctb[sel==2,1]).argsort().argsort()-(ctb[sel==2,3:5].sum(axis=1)*100).argsort().argsort()
 	open('accepted.txt','w').write(','.join([str(int(cc)) for cc in acc]))
 	open('rejected.txt','w').write(','.join([str(int(cc)) for cc in rej]))
 	open('midk_rejected.txt','w').write(','.join([str(int(cc)) for cc in mid]))
-	
-	return acc,rej,mid
-
-def dvars(dv,mud):
-	nx,ny,nz,nt = dv.shape
-	d = dv.reshape([nx*ny*nz,nt]).T
-
-	#Compute mean and mask
-	if len(mud.shape) == 4:  
-		mud = mud.reshape([nx*ny*nz,nt]).T
-		d_mu = mud.mean(0).reshape([nx*ny*nz])
-	elif len(mud.shape) ==3 :  d_mu = mud.reshape([nx*ny*nz]) 
-	else: print "Can't figure out mean dataset dimensions. Goodbye."
-	d_beta = d
-	
-	d_mask = d_mu!=0
-	d_mask = (d_mu > scoreatpercentile(d_mu[d_mask],3)) & (d_mu < scoreatpercentile(d_mu[d_mask],98) )
-	dp =   (d_beta[:,d_mask]/d_mu[d_mask])*100
-	dpdt = np.abs(dp[1:]-dp[0:-1])+0.0000001
-
-	#Condition distribution of dp/dt's
-	dpdt_thr = np.log10(dpdt).mean(0)
-	dpdt_max = pow(10,scoreatpercentile(dpdt_thr,98))
-	dpdt_mask = dpdt.mean(0) < dpdt_max
-	 
-	#Threshold differentials with extreme values, compute DVARS
-	return np.sqrt(np.mean(dpdt[:,dpdt_mask]**2,1))
+	return acc.tolist(),rej.tolist(),mid.tolist()
 
 def optcom(data,t2s,tes,mask):
 	"""
@@ -457,32 +417,6 @@ def getelbow(ks):
 	k_min_ind = d.argmax()
 	k_min  = ks[k_min_ind]
 	return k_min_ind
-
-def getelbowiter(ks,bias=False):
-	rstart = 1 
-	rend = len(ks)
-	iter = 0
-	if not bias:
-		el = -1
-		newel = -2
-		while el!=newel:
-			el = newel
-			newel = rstart+getelbow(ks[rstart:rend])
-			rdel = min((newel-rstart)/2,(rend-newel)/2)
-			rstart = newel-rdel
-			rend = newel+rdel
-			print el
-	if bias:
-		el = 999
-		newel = 999
-		while rstart+1<=el:
-			iter+=1
-			el = newel
-			newel = rstart+getelbow(ks[rstart:rend])
-			rstart = newel-newel/pow(2,iter)
-			rend = newel+(len(ks)-newel)/pow(2,iter)
-	if el==0 or el==len(ks)-1: return getelbow(ks)
-	else: return el
 
 def getfbounds(ne):
 	F05s=[None,None,18.5,10.1,7.7,6.6,6.0,5.6,5.3,5.1,5.0]
@@ -528,14 +462,6 @@ def tedpca(ste=0):
 	
 	##Do PC dimension selection
 	#Get eigenvalue cutoff
-	
-	#print 'Saving for MATLAB'
-	#import scipy.io
-	#scipy.io.savemat('dz.mat',{'dz':dz})
-	
-	#import ipdb
-	#ipdb.set_trace()
-	
 	u,s,v = np.linalg.svd(dz,full_matrices=0)
 	sp = s/s.sum()
 	eigelb = sp[getelbow(sp)]
@@ -556,7 +482,6 @@ def tedpca(ste=0):
 	eimum = np.array(np.squeeze(unmask(np.array(eim,dtype=np.int).prod(1),mask)),dtype=np.bool)
 	betasv = get_coeffs(catim.get_data()-catim.get_data().mean(-1)[:,:,:,np.newaxis],np.tile(eimum,(1,1,Ne)),v.T)
 	betasv = cat2echos(betasv,Ne)
-	
 	ctb = fitmodels(betasv,t2s,mu,eimum,tes,sig=sig,fout=None,pow=2)
 	ctb = np.vstack([ctb.T[0:3],sp]).T
 	
@@ -577,8 +502,6 @@ def tedpca(ste=0):
 	if int(kdaw)!=-1 and int(rdaw)==-1:
 		rhos_lim = rhos[andb([rhos<fmid,rhos>fmin])==2]
 		rho_thr = rhos_lim[getelbow(rhos_lim)]
-	#import ipdb
-	#ipdb.set_trace()
 	if options.stabilize:
 		pcscore = (np.array(ctb[:,1]>kappa_thr,dtype=np.int)+np.array(ctb[:,2]>rho_thr,dtype=np.int)+np.array(ctb[:,3]>eigelb,dtype=np.int))*np.array(ctb[:,3]>spmin,dtype=np.int)*np.array(spcum<0.95,dtype=np.int)*np.array(ctb[:,2]>fmin,dtype=np.int)*np.array(ctb[:,1]>fmin,dtype=np.int)*np.array(ctb[:,1]!=F_MAX,dtype=np.int)*np.array(ctb[:,2]!=F_MAX,dtype=np.int) 
 	else:
@@ -678,14 +601,6 @@ def writect(comptable,ctname=''):
 		f.write("#	comp	Kappa	Rho	+Var%	-Var%\n")
 		for i in range(nc):
 			f.write('%d\t%f\t%f\t%.2f\t%.2f\n'%(sortab[i,0]+1,sortab[i,1],sortab[i,2],sortab[i,3]*100,sortab[i,4]*100))
-	
-def writemcct(ct,costnames):
-	nc = ct.shape[0]
-	ctname = 'comp_table_multicost.txt'
-	with open(ctname,'w') as f:
-		f.write("#"+'\t'.join(costnames)+"\n")
-		for i in range(nc):
-			f.write('\t'.join(["%.02f" % ct[i,cc] for cc in range(ct.shape[1])])+"\n")
 
 	
 ###################################################################################################
@@ -698,11 +613,10 @@ if __name__=='__main__':
 	parser.add_option('-d',"--orig_data",dest='data',help="Spatially Concatenated Multi-Echo Dataset",default=None)
 	parser.add_option('-e',"--TEs",dest='tes',help="Echo times (in ms) ex: 15,39,63",default=None)
 	parser.add_option('',"--mix",dest='mixm',help="Mixing matrix. If not provided, ME-PCA & ME-ICA (MDP) is done.",default=None)
+	parser.add_option('',"--dmix",dest='dmix',help="Design matrix to test for TE-dep. after denoising (serial/greedy simple regression)",default='')
 	parser.add_option('',"--sourceTEs",dest='ste',help="Source TEs for models. ex: -ste 2,3 ; -ste 0 for all, -1 for opt. com. Default 0.",default=0)	
 	parser.add_option('',"--denoiseTE",dest='e2d',help="TE to denoise. Default middle",default=None)	
 	parser.add_option('',"--midfac",dest='midfac',action='store_true',help="Elbow filter factor, Z-units. 0=off,default=4,enhanced=3",default=4)
-	parser.add_option('',"--repave",dest='repave',help="Repeat ME-ICA n times and average hi K time series.",default=1)
-	parser.add_option('',"--multicost",dest='multicost',help="Repeat ME-ICA with mult. initial costs and average. ex: --multicost pow3,gaus,skew",default="")
 	parser.add_option('',"--initcost",dest='initcost',help="Initial cost func. for ICA: pow3,tanh(default),gaus,skew",default='tanh')
 	parser.add_option('',"--finalcost",dest='finalcost',help="Final cost func, same opts. as initial",default='tanh')	
 	parser.add_option('',"--stabilize",dest='stabilize',action='store_true',help="Stabilize convergence by reducing dimensionality, for low quality data",default=False)	
@@ -726,7 +640,6 @@ if __name__=='__main__':
 	print "++ Loading Data"
 	tes = np.fromstring(options.tes,sep=',',dtype=np.float32)
 	ne = tes.shape[0]
-	repave = int(options.repave)
 	catim  = nib.load(options.data)	
 	head   = catim.get_header()
 	head.extensions = []
@@ -765,39 +678,6 @@ if __name__=='__main__':
 		comptable,mmix,smaps,betas = tedica(dd,cost=options.initcost)
 		acc,rej,midk = selcomps(comptable)
 		np.savetxt('meica_mix.1D',mmix)
-		if repave>1:
-			print "Doing repeated average ME-ICA"
-			mean_hik_ts,mean_other_ts = split_ts(catd[:,:,:,options.e2d-1,:],comptable,mmix)
-			for ii in range(repave-1):
-				comptable,mmix,smaps,betas = tedica(dd,cost=options.initcost)
-				tmp_hik_ts,tmp_other_ts = split_ts(catd[:,:,:,options.e2d-1,:],comptable,mmix)
-				mean_hik_ts+=tmp_hik_ts
-				mean_other_ts+=tmp_other_ts
-			mean_hik_ts/=repave
-			mean_other_ts/=repave
-			#import pdb
-			#pdb.set_trace()
-			niwrite(mean_hik_ts,aff,'hik_ts_e%i_mean%i.nii' % (int(options.e2d),int(options.repave)))
-			niwrite(mean_other_ts,aff,'other_ts_e%i_mean%i.nii' % (int(options.e2d),int(options.repave)))
-		if options.multicost != "":
-			incosts = options.multicost.split(',')
-			print "Doing multi-cost average ME-ICA"
-			mc_comptable = comptable[comptable[:,1].argsort()[::-1],1]
-			mean_hik_ts,mean_other_ts = split_ts(catd[:,:,:,options.e2d-1,:],comptable,mmix)
-			for acost in sorted(set(incosts)-set([options.initcost])):
-				tmp_comptable,mmix,smaps,betas = tedica(dd,cost=acost)
-				mc_comptable = np.vstack([mc_comptable,tmp_comptable[tmp_comptable[:,1].argsort()[::-1],1]])
-				tmp_hik_ts,tmp_other_ts = split_ts(catd[:,:,:,options.e2d-1,:],comptable,mmix)
-				mean_hik_ts+=tmp_hik_ts
-				mean_other_ts+=tmp_other_ts
-			mean_hik_ts/=len(incosts)
-			mean_other_ts/=len(incosts)
-			#import ipdb
-			#ipdb.set_trace()
-			mc_comptable = mc_comptable.T
-			writemcct(mc_comptable,[options.initcost]+incosts)
-			niwrite(mean_hik_ts,aff,'hik_ts_e%i_multicost.nii' % (int(options.e2d)))
-			niwrite(mean_other_ts,aff,'other_ts_e%i_multicost.nii' % (int(options.e2d)))
 		del dd
 	else:
 		mmix = np.loadtxt(options.mixm)
@@ -807,6 +687,35 @@ if __name__=='__main__':
 		betas = cat2echos(betas,Ne)
 		comptable = fitmodels(betas,t2s,mu,eimum,tes,sig=sig,fout=options.fout,pow=2)
 		acc,rej,midk = selcomps(comptable)
+        if options.dmix!='':
+            dndata = np.dot(betas[:,:,:,:,acc],(mmix[:,acc].T))
+            dndata = uncat2echos(dndata,Ne)
+            dmix = np.atleast_2d(np.loadtxt(options.dmix))
+            if np.min(dmix.shape)==1 and dmix.shape[1]!=1: dmix = dmix.T
+            dbetas = get_coeffs(dndata,np.tile(mask,(1,1,Ne)),dmix,add_const=True)
+            dbetas = cat2echos(dbetas,Ne)
+            
+            #import ipdb;ipdb.set_trace()
+            dcomptable = fitmodels(dbetas[:,:,:,0:,:],t2s,mu[:,:,:,0:],eimum,tes[0:],sig=sig[:,:,:,0:],fout=options.fout,pow=2)
+            writect(dcomptable,'comp_table_dmix.txt')
+            print "++ Writing design matrix component table"
+            ks = dcomptable[:,1]
+            svars = dcomptable[:,3:5].sum(1)*100.
+            dacc = dcomptable[ks>100,0].tolist()
+            
+            rhos = dcomptable[dacc,2].copy()
+            rhos.sort()
+            rho_thr = rhos[min(getelbow(rhos)+1,rhos.shape[0]-1)]
+            rhos = dcomptable[:,2]
+
+            dacc += dcomptable[andb([ks<=100,ks>np.percentile(ks,66)/2.,svars<100./svars.shape[0]])==3,0].tolist()
+            dacc += dcomptable[andb([ks<=100,rhos<=rho_thr,svars<100./svars.shape[0]])==3,0].tolist()
+            dacc = set(dacc)
+            #import ipdb; ipdb.set_trace()
+            drej = list(set(range(dmix.shape[1])).difference(set(dacc)))
+            open('dmix_accepted.txt','w').write(','.join([str(int(cc)) for cc in sorted(dacc)]))
+            open('dmix_midk.txt','w').write(','.join([str(int(cc)) for cc in sorted(drej)]))
+            
 	
 	print "++ Writing component table"
 	writect(comptable,'comp_table.txt')

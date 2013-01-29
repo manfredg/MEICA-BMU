@@ -113,14 +113,16 @@ parser.add_option('-f',"",dest='FWHM',help="ex: -f 3mm  Target dataset smoothnes
 parser.add_option('-a',"",dest='anat',help="ex: -a mprage.nii.gz  Anatomical dataset (optional)",default='')
 parser.add_option('-b',"",dest='basetime',help="ex: -b 10  Time to steady-state equilibration in seconds. Default 0. ",default=0)
 extopts=OptionGroup(parser,"Extended preprocessing options")
+extopts.add_option('',"--t2salign",action="store_true",dest='t2salign',help="T2* weighted affine anatomical coregistration",default=False)
 extopts.add_option('',"--no_skullstrip",action="store_true",dest='no_skullstrip',help="Anatomical is already skullstripped (if -a provided)",default=False)
 extopts.add_option('',"--maskpeels",dest='maskpeels',help="Functional masking factor, increase for more aggressive masking, default 3",default=3)
 extopts.add_option('',"--tlrc",dest='tlrc',help="Normalize to Talairach space, specify base, ex: --tlrc TT_N27+tlrc",default=False)
 extopts.add_option('',"--align_args",dest='align_args',help="Additional arguments for 3dAllineate EPI-anatomical alignment",default='')
 extopts.add_option('',"--align_base",dest='align_base',help="Explicitly specify base dataset for volume registration",default='')
 extopts.add_option('',"--TR",dest='TR',help="The TR. Default read from input datasets",default='')
-extopts.add_option('',"--tpattern",dest='tpattern',help="Slice timing (i.e. alt+z, see 3dTshift --help). Default from header. (N.B. This is important!)",default='')
+extopts.add_option('',"--tpattern",dest='tpattern',help="Slice timing (i.e. alt+z, see 3dTshift -help). Default from header. (N.B. This is important!)",default='')
 extopts.add_option('',"--highpass",dest='highpass',help="Highpass filter in Hz (recommended default 0.0)",default=0.0)
+extopts.add_option('',"--detrend",dest='detrend',help="Polynomial detrend order (i.e. an integer, see 3dDetrend -help)")
 parser.add_option_group(extopts)
 icaopts=OptionGroup(parser,"Extended ICA options (see tedana.py -h")
 icaopts.add_option('',"--daw",dest='daw',help="Dimensionality increase weight. Default 10. For low tSNR data, use -1",default='10')
@@ -280,7 +282,29 @@ e2dsin = prefix+datasets[0]+trailing
 
 # Calculate affine anatomical warp if anatomical provided, then combine motion correction and coregistration parameters 
 if options.anat!='':
-	if grayweight_ok == 1:
+	if options.t2salign:
+		dss = datasets
+		dss.sort()
+		stackline=""
+		for echo_ii in range(len(dss)):
+			echo = datasets[echo_ii]
+			dsin = 'e'+echo+trailing
+			indata = prefix+echo+trailing+osf
+			stackline+=" %s[%i..%i]" % (indata,int(options.basetime),int(options.basetime)+5)
+		sl.append("3dZcat -prefix basestack.nii.gz %s" % (stackline))
+		sl.append("3dcalc -float -a basestack.nii.gz -expr 'a' -overwrite")
+		sl.append("%s %s -d basestack.nii.gz -e %s" % (sys.executable, '/'.join([meicadir,'meica.libs','t2smap.py']),options.tes))
+		sl.append("3dBrickStat -mask s0v.nii -percentile 98 1 98 s0v.nii > maxs0.1D")
+		sl.append("maxs0=`cat maxs0.1D`; maxs0a=($maxs0); vmax=${maxs0a[1]}; p20=`ccalc ${vmax}*.20`" )
+		sl.append("3dcalc -a s0v.nii -b t2sv.nii -expr \"step(a-${p20})*b\" -prefix t2svm.nii.gz" )
+		sl.append("3dBrickStat -mask t2svm.nii.gz -percentile 98 1 98 t2svm.nii.gz > maxt2svm.1D")
+		sl.append("maxt2svm=`cat maxt2svm.1D`; maxt2svma=($maxt2svm); vmax=${maxt2svma[1]}; p20=`ccalc ${vmax}*.20`" )
+		sl.append("3dcalc -a t2svm.nii.gz -expr \"step(a-${p20})*a\" -overwrite -prefix t2svm.nii.gz" )
+		sl.append("3dSeg -anat t2svm.nii.gz -mask t2svm.nii.gz")
+		sl.append("3dcalc -float -a Segsy/Posterior+orig[2] -expr 'a' -prefix epigraywt.nii.gz")
+		sl.append("3dcalc -float -a Segsy/AnatUB+orig -b Segsy/Classes+orig -expr 'a*step(b)' -prefix eBbase%s" % (osf))
+		weightline = ' -lpc -weight epigraywt%s -base eBbase%s ' % (osf,osf)
+	elif grayweight_ok == 1:
 		sl.append("3dSeg -mask eBmask%s -anat _eBmask%s" % (osf,osf))
 		sl.append("3dcalc -float -a Segsy/Posterior+orig[2] -expr 'a' -prefix epigraywt%s" % (osf))
 		sl.append("3dcalc -float -a Segsy/AnatUB+orig -b Segsy/Classes+orig -expr 'a*step(b)' -prefix eBbase%s" % (osf))
@@ -361,8 +385,8 @@ for echo_ii in range(len(datasets)):
 	sl.append("gms=`cat gms.1D`; gmsa=($gms); p50=${gmsa[1]}")
 	sl.append("3dcalc -float -overwrite -a ./%s_sm%s -expr \"a*10000/${p50}\" -prefix ./%s_sm%s" % (dsin,osf,dsin,osf))
 	sl.append("3dTstat -prefix ./%s_mean%s ./%s_sm%s" % (dsin,osf,dsin,osf))
-	if options.highpass!=0.0: sl.append("3dBandpass -prefix ./%s_in%s %f 99 ./%s_sm%s " % (dsin,osf,float(options.highpass),dsin,osf) )
-	else: sl.append("mv %s_sm%s %s_in%s" % (dsin,osf,dsin,osf))
+	if options.detrend: sl.append("3dDetrend -polort %s -overwrite -prefix ./%s_sm%s ./%s_sm%s " % (options.detrend,dsin,osf,dsin,osf) )
+	sl.append("3dBandpass -prefix ./%s_in%s %f 99 ./%s_sm%s " % (dsin,osf,float(options.highpass),dsin,osf) )
 	sl.append("3dcalc -float -overwrite -a ./%s_in%s -b ./%s_mean%s -expr 'a+b' -prefix ./%s_in%s" % (dsin,osf,dsin,osf,dsin,osf))
 	sl.append("3dTstat -stdev -prefix ./%s_std%s ./%s_in%s" % (dsin,osf,dsin,osf))
 	if options.test_proc: sl.append("exit")
