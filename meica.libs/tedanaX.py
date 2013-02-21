@@ -26,7 +26,7 @@ import numpy as np
 import nibabel as nib
 from sys import stdout
 #import pdb
-import ipdb
+#import ipdb
 
 F_MAX=500
 Z_MAX = 8
@@ -236,7 +236,7 @@ def andb(arrs):
 	return result
 
 
-def fitmodels2_(catd,mmix,mask,t2s,tes,fout=None,reindex=False):
+def fitmodels2__(catd,mmix,mask,t2s,tes,fout=None,reindex=False):
 	"""
    	Usage:
    	
@@ -357,7 +357,7 @@ def fitmodels2_(catd,mmix,mask,t2s,tes,fout=None,reindex=False):
 
 	return comptab, KRd, betas, mmix
 
-def fitmodels2(catd,mmix,mask,t2s,tes,fout=None,reindex=False):
+def fitmodels2(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 	"""
    	Usage:
    	
@@ -374,7 +374,8 @@ def fitmodels2(catd,mmix,mask,t2s,tes,fout=None,reindex=False):
 	tsoc_dm = tsoc-tsoc.mean(axis=-1)[:,np.newaxis]
 	
 	#Compute un-normalized weight dataset (features)
-	WTS = computefeats2(unmask(tsoc,mask),mmix,mask,normalize=False)
+	if mmixN == None: mmixN=mmix
+	WTS = computefeats2(unmask(tsoc,mask),mmixN,mask,normalize=False)
 
 	#Compute skews to determine signs based on unnormalized weights, correct mmix & WTS signs based on spatial distribution tails
 	from scipy.stats import skew
@@ -478,7 +479,6 @@ def fitmodels2(catd,mmix,mask,t2s,tes,fout=None,reindex=False):
 
 	return comptab, KRd, betas, mmix
 
-
 def selcomps(comptable):
 	fmin,fmid,fmax = getfbounds(ne)
 	ctb = comptable[ comptable[:,1].argsort()[::-1],:]
@@ -542,19 +542,6 @@ def selcomps_voter(ctb,KRd,margin=0.75,extend=False):
 	#Remove mid from acc
 	acc = list(set(accf)-set(mid))
 	rej = list(set(np.arange(nc))-set(accf)-set(mid))
-	#Extend selection for non-offending components with low-Kappa (perhaps due to poor T2* fit, i.e. in dropout)
-	"""
-	if extend:
-		rho_max = np.max(ctb[accf.tolist(),2])
-		extend_select = np.array(andb([ \
-			ctb[:,2]<rho_max, \
-			ctb[:,3]<vartr[0]+ctb[:,1]*vartr[1]*1.5, \
-			ctb[:,4]<psc_thr])==3,dtype=np.int)
-		extend_select = np.array(extend_select*np.array([cc in rej for cc in range(nc)],dtype=np.int),dtype=np.bool)
-		acc+=list(ctb[extend_select,0])
-		rej = list(set(np.arange(nc))-set(acc)-set(mid))
-		ipdb.set_trace()
-	"""
 	return acc,rej,mid
 
 
@@ -667,8 +654,10 @@ def tedpca(ste=0):
 	betasv = cat2echos(betasv,Ne)
 
 	#ipdb.set_trace()
-
-	ctb,KRd,betasv,v_T = fitmodels2(catd,v.T,eimum,t2s,tes)
+	vTmix = v.T
+	vTmixN =((vTmix.T-vTmix.T.mean(0))/vTmix.T.std(0)).T
+	ctb,KRd,betasv,v_T = fitmodels2(catd,v.T,eimum,t2s,tes,mmixN=vTmixN)
+	#ctb,KRd,betasv,v_T = fitmodels2__(catd,v.T,eimum,t2s,tes)
 	#ctb = fitmodels(betasv,t2s,mu,eimum,tes,sig=sig,fout=None,pow=2)
 	ctb = ctb[ctb[:,0].argsort(),:]
 	ctb = np.vstack([ctb.T[0:3],sp]).T
@@ -678,6 +667,8 @@ def tedpca(ste=0):
 	kappas = ctb[ctb[:,1].argsort(),1]
 	rhos = ctb[ctb[:,2].argsort(),2]
 	fmin,fmid,fmax = getfbounds(ne)
+	#kappa_thr = 18.5
+	#rho_thr = 18.5
 	kappa_thr = np.average(sorted([fmin,kappas[getelbow(kappas)]/2,fmid]),weights=[kdaw,1,1])
 	rho_thr = np.average(sorted([fmin,rhos[getelbow(rhos)]/2,fmid]),weights=[rdaw,1,1])
 	if int(kdaw)==-1:
@@ -762,8 +753,8 @@ def computefeats2(data,mmix,mask,normalize=True):
 	data = data[mask]
 	data_vn = (data-data.mean(axis=-1)[:,np.newaxis])/data.std(axis=-1)[:,np.newaxis]
 	data_R = get_coeffs(unmask(data_vn,mask),mask,mmix)[mask]
-	data_R[data_R<-.999] = 0
-	data_R[data_R>.999] = 0
+	data_R[data_R<-.999] = -0.999
+	data_R[data_R>.999] = .999
 	data_Z = np.arctanh(data_R)
 	if normalize:
 		#data_Z2 = ((data_Z.T-data_Z.mean(0)[:,np.newaxis])/data_Z.std(0)[:,np.newaxis]).T
@@ -788,6 +779,9 @@ def writect2(comptable,ctname=''):
 	nc = comptable.shape[0]
 	sortab = comptable[comptable[:,1].argsort()[::-1],:]
 	if ctname=='': ctname = 'comp_table_2.txt'
+	open('accepted.txt','w').write(','.join([str(int(cc)) for cc in acc]))
+	open('rejected.txt','w').write(','.join([str(int(cc)) for cc in rej]))
+	open('midk_rejected.txt','w').write(','.join([str(int(cc)) for cc in midk]))
 	with open(ctname,'w') as f:
 		f.write("#	comp	Kappa	Rho	+Var%	\n")
 		for i in range(nc):
@@ -863,13 +857,12 @@ if __name__=='__main__':
 	head.set_sform(head.get_sform(),code=1)
 	aff = catim.get_affine()
 	catd = cat2echos(catim.get_data(),ne)
+
 	nx,ny,nz,Ne,nt = catd.shape
 	mu  = catd.mean(axis=-1)
 	sig  = catd.std(axis=-1)
 	if options.fout: options.fout = aff
 	else: options.fout=None
-	#if options.e2d == None: options.e2d = np.floor(ne/2)+1
-	#else: options.e2d = int(options.e2d)
 	kdaw = float(options.kdaw)
 	rdaw = float(options.rdaw)
 	if options.label!=None: dirname='%s' % '.'.join(['TED',options.label])
@@ -881,7 +874,10 @@ if __name__=='__main__':
 	mask  = makemask(catd)
 
 	print "++ Computing T2* map"
-	t2s,s0   = t2smap(catd,mask,tes) 
+	t2s,s0   = t2smap(catd,mask,tes)
+	#Condition values
+	cap_t2s = scoreatpercentile(t2s.flatten(),99.5)
+	t2s[t2s>cap_t2s*10]=cap_t2s 
 	niwrite(s0,aff,'s0v.nii')
 	niwrite(t2s,aff,'t2sv.nii')
 	
@@ -948,7 +944,7 @@ if __name__=='__main__':
 		print "++ Writing Kappa-filtered optimally combined timeseries"
 		write_split_ts(ts,comptable,mmix,'OC')
 		print "++ Writing signal versions of components"
-		ipdb.set_trace()
+		#ipdb.set_trace()
 		ts_B = get_coeffs(ts,mask,mmix)
 		niwrite(ts_B[:,:,:,:],aff,'_'.join(['betas','OC'])+'.nii')
 		niwrite(ts_B[:,:,:,acc],aff,'_'.join(['betas_hik','OC'])+'.nii')

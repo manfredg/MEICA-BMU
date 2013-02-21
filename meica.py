@@ -301,18 +301,26 @@ if options.anat!='':
 		sl.append("maxt2svm=`cat maxt2svm.1D`; maxt2svma=($maxt2svm); vmax=${maxt2svma[1]}; p20=`ccalc ${vmax}*.20`" )
 		sl.append("3dcalc -a t2svm.nii.gz -expr \"step(a-${p20})*a\" -overwrite -prefix t2svm.nii.gz" )
 		sl.append("3dSeg -anat t2svm.nii.gz -mask t2svm.nii.gz")
-		sl.append("3dcalc -float -a Segsy/Posterior+orig[2] -expr 'a' -prefix epigraywt.nii.gz")
+		sl.append("sc0=`3dBrickStat -mask Segsy/Classes+orig. -mvalue 1 -count Segsy/Classes+orig.`;sc1=`3dBrickStat -mask Segsy/Classes+orig. -mvalue 2 -count Segsy/Classes+orig.`;sc2=`3dBrickStat -mask Segsy/Classes+orig. -mvalue 3 -count Segsy/Classes+orig.`")
+		sl.append("cc=\"$sc0 $sc1 $sc2\"")
+		sl.append("IC=(`tr ' ' '\\n' <<<$cc | cat -n | sort -k2,2nr | head -n1`)")
+		sl.append("mb=$(($IC-1))")
+		sl.append("3dcalc -float -a Segsy/Posterior+orig[${mb}] -expr 'a' -prefix epigraywt.nii.gz")
 		sl.append("3dcalc -float -a Segsy/AnatUB+orig -b Segsy/Classes+orig -expr 'a*step(b)' -prefix eBbase%s" % (osf))
-		weightline = ' -lpc -weight epigraywt%s -base eBbase%s ' % (osf,osf)
+		sl.append("3dmerge -1clust 4 100 -1erode 80 -1dindex 0 -1tindex 0 -1dilate -overwrite -prefix epigraywt.nii.gz epigraywt.nii.gz")
+		weightvol = "epigraywt%s" % osf
+		weightline = ' -lpc -weight %s -base eBbase%s ' % (weightvol,osf)
 	elif grayweight_ok == 1:
 		sl.append("3dSeg -mask eBmask%s -anat _eBmask%s" % (osf,osf))
 		sl.append("3dcalc -float -a Segsy/Posterior+orig[2] -expr 'a' -prefix epigraywt%s" % (osf))
 		sl.append("3dcalc -float -a Segsy/AnatUB+orig -b Segsy/Classes+orig -expr 'a*step(b)' -prefix eBbase%s" % (osf))
+		weightvol = "epigraywt%s" % osf
 		weightline = ' -lpc -weight epigraywt%s -base eBbase%s ' % (osf,osf)
 	elif grayweight_ok == 2:
 		sl.append("3dcalc -float -overwrite -prefix eBmask%s -a eBmask%s -b _eBmask%s -expr 'a*b'" % (osf,osf,osf))
 		sl.append("fast -t 2 -n 3 -H 0.1 -I 4 -l 20.0 -b -o eBmask eBmask%s" % (osf)) 
 		sl.append("3dcalc -float -a eBmask%s -b eBmask_bias%s -expr 'a/b' -prefix eBbase%s" % ( osf, osf, osf))
+		weightvol = "eBmask_pve_0.nii.gz"		
 		weightline = ' -lpc -weight eBmask_pve_0.nii.gz -base eBbase%s ' % (osf)
 	else: weightline = ' -lpc+ZZ -automask -autoweight -base _eBmask%s ' % (osf)
 	sl.append("cp %s/%s* ." % (startdir,nsmprage))	
@@ -335,7 +343,7 @@ if options.anat!='':
 	else: align_args=" -maxrot 20 -maxshf 20 -parfix 7 1  -parang 9 0.83 1.0 "
 	if oblique_mode: alnsmprage = "./%s_ob.nii.gz" % (anatprefix)
 	else: alnsmprage = "%s/%s" % (startdir,nsmprage)
-	sl.append("3dAllineate -weight_frac 1.0 -VERB -warp aff %s -source_automask+10 -cmass -master SOURCE -source %s -prefix ./%s_al -1Dmatrix_save %s_al_mat %s" % (weightline,alnsmprage, anatprefix,anatprefix,align_args))
+	sl.append("3dAllineate -weight_frac 1.0 -VERB -warp aff %s -source_automask -cmass -master SOURCE -source %s -prefix ./%s_al -1Dmatrix_save %s_al_mat %s" % (weightline,alnsmprage, anatprefix,anatprefix,align_args))
 	if options.tlrc: tlrc_opt = "%s::WARP_DATA -I" % (atnsmprage)
 	else: tlrc_opt = ""
 	if oblique_mode: oblique_opt = "%s_obla2e_mat.1D" % prefix
@@ -386,7 +394,8 @@ for echo_ii in range(len(datasets)):
 	sl.append("3dcalc -float -overwrite -a ./%s_sm%s -expr \"a*10000/${p50}\" -prefix ./%s_sm%s" % (dsin,osf,dsin,osf))
 	sl.append("3dTstat -prefix ./%s_mean%s ./%s_sm%s" % (dsin,osf,dsin,osf))
 	if options.detrend: sl.append("3dDetrend -polort %s -overwrite -prefix ./%s_sm%s ./%s_sm%s " % (options.detrend,dsin,osf,dsin,osf) )
-	sl.append("3dBandpass -prefix ./%s_in%s %f 99 ./%s_sm%s " % (dsin,osf,float(options.highpass),dsin,osf) )
+	if options.highpass: sl.append("3dBandpass -prefix ./%s_in%s %f 99 ./%s_sm%s " % (dsin,osf,float(options.highpass),dsin,osf) )
+	else: sl.append("ln -s %s_sm%s %s_in%s" % (dsin,osf,dsin,osf))
 	sl.append("3dcalc -float -overwrite -a ./%s_in%s -b ./%s_mean%s -expr 'a+b' -prefix ./%s_in%s" % (dsin,osf,dsin,osf,dsin,osf))
 	sl.append("3dTstat -stdev -prefix ./%s_std%s ./%s_in%s" % (dsin,osf,dsin,osf))
 	if options.test_proc: sl.append("exit")
@@ -407,7 +416,6 @@ else:
 	for echo in ica_datasets: 
 		dsin ='e'+echo+trailing
 		zcatstring = "%s ./%s_in%s" % (zcatstring,dsin,osf)
-
 	sl.append("3dZcat -overwrite -prefix %s  %s" % (ica_input,zcatstring) )
 	sl.append("3dcalc -float -overwrite -a %s[0] -expr 'notzero(a)' -prefix %s" % (ica_input,ica_mask))
 

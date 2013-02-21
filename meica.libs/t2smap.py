@@ -29,8 +29,13 @@ def niwrite(data,affine, name , header=None):
 		thishead.set_data_shape(list(data.shape))
 
 	outni = nib.Nifti1Image(data,affine,header=thishead)
+	outni.set_data_dtype('float64')
 	outni.to_filename(name)
+	
+
 	print 'done.'
+
+	return outni
 
 def cat2echos(data,Ne):
 	"""
@@ -154,6 +159,7 @@ def t2smap(catd,mask,tes):
 	s0  = np.exp(beta[0,:]).transpose()
 
 	out = unmask(t2s,mask),unmask(s0,mask)
+	out[0][np.isnan(out[0])]=0.
 
 	return out
 
@@ -192,7 +198,7 @@ if __name__=='__main__':
 	mask  = makemask(catd)
 
 	print "++ Computing T2* map"
-	t2s,s0   = t2smap(catd,mask,tes) 
+	t2s,s0   = np.array(t2smap(catd,mask,tes),dtype=np.float)
 	t2s[t2s>500] = 500
 
 	niwrite(s0,aff,'s0v.nii')
