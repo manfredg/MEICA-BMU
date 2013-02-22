@@ -395,7 +395,7 @@ for echo_ii in range(len(datasets)):
 	sl.append("3dTstat -prefix ./%s_mean%s ./%s_sm%s" % (dsin,osf,dsin,osf))
 	if options.detrend: sl.append("3dDetrend -polort %s -overwrite -prefix ./%s_sm%s ./%s_sm%s " % (options.detrend,dsin,osf,dsin,osf) )
 	if options.highpass: sl.append("3dBandpass -prefix ./%s_in%s %f 99 ./%s_sm%s " % (dsin,osf,float(options.highpass),dsin,osf) )
-	else: sl.append("ln -s %s_sm%s %s_in%s" % (dsin,osf,dsin,osf))
+	else: sl.append("mv %s_sm%s %s_in%s" % (dsin,osf,dsin,osf))
 	sl.append("3dcalc -float -overwrite -a ./%s_in%s -b ./%s_mean%s -expr 'a+b' -prefix ./%s_in%s" % (dsin,osf,dsin,osf,dsin,osf))
 	sl.append("3dTstat -stdev -prefix ./%s_std%s ./%s_in%s" % (dsin,osf,dsin,osf))
 	if options.test_proc: sl.append("exit")
