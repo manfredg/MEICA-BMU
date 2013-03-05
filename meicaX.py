@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-# Multi-Echo ICA, Version 2.0
+# Multi-Echo ICA, Version 2.5 beta1
 # See http://dx.doi.org/10.1016/j.neuroimage.2011.12.028
 # Kundu, P., Inati, S.J., Evans, J.W., Luh, W.M. & Bandettini, P.A. Differentiating 
 #   BOLD and non-BOLD signals in fMRI time series using multi-echo EPI. NeuroImage (2011).
@@ -144,7 +144,7 @@ parser.add_option_group(runopts)
 (options,args) = parser.parse_args()
 
 #Welcome line
-print """\n-- Multi-Echo Independent Components Analysis (ME-ICA) v2.0 --
+print """\n-- Multi-Echo Independent Components Analysis (ME-ICA) v2.5 beta1 --
 
 Please cite: 
 Kundu, P., Inati, S.J., Evans, J.W., Luh, W.M. & Bandettini, P.A. Differentiating 
@@ -198,9 +198,6 @@ if not options.skip_check:
 else:
 	print "*+ Skipping dependency checks."
 	grayweight_ok = 1
-
-#FSL DEBUG
-grayweight_ok = 2
 
 #Parse timing arguments
 if options.TR!='':tr=float(options.TR)
@@ -292,6 +289,7 @@ def graywt(infile,maskfile):
 	Makes eBbase and epigraywt using either AFNI 3dSeg or FSL FAST and returns inputs to 3dAllineate.
 	If neither 3dSeg or FAST are found, the autoweight line is returned
 	"""
+	sl.append("3drefit -space ORIG %s " % infile)
 	if grayweight_ok == 1:
 		sl.append("3dSeg -anat %s -mask %s" %(infile,maskfile))
 		sl.append("sc0=`3dBrickStat -mask Segsy/Classes+orig. -mvalue 1 -count Segsy/Classes+orig.`;sc1=`3dBrickStat -mask Segsy/Classes+orig. -mvalue 2 -count Segsy/Classes+orig.`;sc2=`3dBrickStat -mask Segsy/Classes+orig. -mvalue 3 -count Segsy/Classes+orig.`")
@@ -472,11 +470,11 @@ sl.append("%scp TED/hik_ts_OC.nii TED/%s_medn.nii" % (tedflag,options.prefix))
 sl.append("%scp TED/betas_hik_OC.nii TED/%s_mefc.nii" % (tedflag,options.prefix))
 sl.append("%scp TED/comp_table.txt %s/%s_ctab.txt" % (tedflag,startdir,options.prefix))
 hist_line = "%s" % (" ".join(sys.argv).replace('"',r"\""))
-note_line = "Denoised timeseries, produced by ME-ICA v2.0 (r5)"
+note_line = "Denoised timeseries, produced by ME-ICA v2.5"
 sl.append("%s3dNotes -h \'%s (%s)\' TED/%s_medn.nii" % (tedflag,hist_line,note_line,options.prefix))
-note_line = "Denoised ICA coeff. set for seed-based FC analysis, produced by ME-ICA v2.0 (r1)"
+note_line = "Denoised ICA coeff. set for seed-based FC analysis, produced by ME-ICA v2.5"
 sl.append("%s3dNotes -h \'%s (%s)\' TED/%s_mefc.nii" % (tedflag,hist_line,note_line,options.prefix))
-note_line = "T2* weighted average of ME time series, produced by ME-ICA v2.0 (r5)"
+note_line = "T2* weighted average of ME time series, produced by ME-ICA v2.5"
 sl.append("%s3dNotes -h \'%s (%s)\' TED/%s_tsoc.nii" % (tedflag,hist_line,note_line,options.prefix))
 if options.anat!='' and options.tlrc!=False:
 	sl.append("%snifti_tool -mod_hdr -mod_field sform_code 2 -mod_field qform_code 2 -infiles TED/%s_tsoc.nii -overwrite" % (tedflag,options.prefix))

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-# Multi-Echo ICA, Version 2.0
+# Multi-Echo ICA, Version 2.5 beta1
 # See http://dx.doi.org/10.1016/j.neuroimage.2011.12.028
 # Kundu, P., Inati, S.J., Evans, J.W., Luh, W.M. & Bandettini, P.A. Differentiating 
 #	BOLD and non-BOLD signals in fMRI time series using multi-echo EPI. NeuroImage (2011).
@@ -842,7 +842,7 @@ if __name__=='__main__':
 
 	(options,args) = parser.parse_args()
 
-	print "-- ME-PCA/ME-ICA Component for ME-ICA v2.0 --"
+	print "-- ME-PCA/ME-ICA Component for ME-ICA v2.5 beta1--"
 
 	if options.tes==None or options.data==None: 
 		print "*+ Need at least data and TEs, use -h for help."		
