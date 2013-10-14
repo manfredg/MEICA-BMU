@@ -128,7 +128,7 @@ icaopts=OptionGroup(parser,"Extended ICA options (see tedana.py -h")
 icaopts.add_option('',"--daw",dest='daw',help="Dimensionality increase weight. Default 10. For low tSNR data, use -1",default='10')
 icaopts.add_option('',"--initcost",dest='initcost',help="Initial cost for ICA",default='pow3')
 icaopts.add_option('',"--finalcost",dest='finalcost',help="Final cost for ICA",default='tanh')
-icaopts.add_option('',"--sourceTEs",dest='sourceTEs',help="Source TEs for ICA",default='0')
+icaopts.add_option('',"--sourceTEs",dest='sourceTEs',help="Source TEs for ICA",default='-1')
 parser.add_option_group(icaopts)
 runopts=OptionGroup(parser,"Run optipns")
 runopts.add_option('',"--cpus",dest='cpus',help="Maximum number of CPUs (OpenMP threads) to use. Default 2.",default='2')
@@ -205,7 +205,7 @@ else:
 	tr=float(os.popen('3dinfo -tr %s%s%s%s' % (prefix,datasets[0],trailing,isf)).readlines()[0].strip())
 	options.TR=str(tr)
 timetoclip=float(options.basetime)
-basebrik=int(timetoclip/tr)
+basebrik=int(round(timetoclip/tr))
 
 #Parse alignment options
 align_base = basebrik
@@ -381,7 +381,7 @@ for echo_ii in range(len(datasets)):
 		tpat_opt = ' -tpattern %s ' % options.tpattern
 	else:
 		tpat_opt = ''
-	sl.append("3dTshift -slice 0 -heptic %s -prefix ./%s_ts+orig %s%s" % (tpat_opt,dsin,indata,isf) )
+	sl.append("3dTshift -heptic %s -prefix ./%s_ts+orig %s%s" % (tpat_opt,dsin,indata,isf) )
 	
 	if oblique_mode and options.anat=="":
 		sl.append("3dWarp -overwrite -deoblique -prefix ./%s_ts+orig ./%s_ts+orig" % (dsin,dsin))

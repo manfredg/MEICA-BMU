@@ -27,6 +27,7 @@ import nibabel as nib
 from sys import stdout
 #import pdb
 #import ipdb
+import scipy.stats as stats
 
 F_MAX=500
 Z_MAX = 8
@@ -458,6 +459,12 @@ def fitmodels2(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 			KRd[i,0,KRp_i] = kappa
 			KRd[i,1,KRp_i] = rho
 
+		#Get p-value of F-value
+
+		#import ipdb; ipdb.set_trace()
+		#norm.ppf((0.05)/2)
+		#SS.fdtrc(1,2,38.5)
+
 		if fout is not None:
 			out = np.zeros((nx,ny,nz,4))
 			name = "cc%.3d.nii"%i
@@ -467,7 +474,7 @@ def fitmodels2(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 			out[:,:,:,3] = np.squeeze(unmask(wtsZ,mask))
 			niwrite(out,fout,name)
 			os.system('3drefit -sublabel 0 PSC -sublabel 1 F_R2  -sublabel 2 F_SO %s 2> /dev/null > /dev/null'%name)
-	
+
 	comptab = comptab2
 
 	if reindex:
@@ -478,6 +485,322 @@ def fitmodels2(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 		comptab = np.hstack([np.atleast_2d(np.arange(nc)).T,comptab[:,1:]])
 
 	return comptab, KRd, betas, mmix
+
+def fitmodels2(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
+	"""
+   	Usage:
+   	
+   	fitmodels2(fout)
+	
+   	Input:
+   	fout is flag for output of per-component TE-dependence maps
+   	t2s is a (nx,ny,nz) ndarray
+   	tes is a 1d array
+   	"""
+
+   	#Compute opt. com. raw data
+	tsoc = np.array(optcom(catd,t2s,tes,mask),dtype=float)[mask]
+	tsoc_dm = tsoc-tsoc.mean(axis=-1)[:,np.newaxis]
+	
+	#Compute un-normalized weight dataset (features)
+	if mmixN == None: mmixN=mmix
+	WTS = computefeats2(unmask(tsoc,mask),mmixN,mask,normalize=False)
+
+	#Compute skews to determine signs based on unnormalized weights, correct mmix & WTS signs based on spatial distribution tails
+	from scipy.stats import skew
+	signs = skew(WTS,axis=0)
+	signs /= np.abs(signs)
+	mmix = mmix.copy()
+	mmix*=signs
+	WTS*=signs
+	totvar = (WTS**2).sum()
+
+	#Compute PSC dataset
+	tsoc_B = get_coeffs(unmask(tsoc_dm,mask),mask,mmix)[mask]
+	PSC = tsoc_B/tsoc.mean(axis=-1)[:,np.newaxis]*100
+	
+	#Compute Betas and means over TEs for TE-dependence analysis
+	Ne = tes.shape[0]
+	betas = cat2echos(get_coeffs(uncat2echos(catd,Ne),np.tile(mask,(1,1,Ne)),mmix),Ne)
+	nx,ny,nz,Ne,nc = betas.shape
+	Nm = mask.sum()
+	mu = catd.mean(axis=-1)
+	tes = np.reshape(tes,(Ne,1))
+
+	#Mask arrays
+	mumask   = fmask(mu,mask)
+	t2smask  = fmask(t2s,mask)
+	betamask = fmask(betas,mask)
+	
+	#Set up component table
+	KRp_start = 1.5; KRp_stop=10; KRsamps = 20 
+	KRps=np.unique(np.hstack([np.linspace(KRp_start,KRp_stop,KRsamps),[2.,4.]]))
+	KRps.sort()
+	KRd=np.zeros([nc,2,KRsamps])
+	comptab2 = np.zeros((nc,5))
+
+	#Setup Xmats
+	#Model 1
+	X1 = mumask.transpose()
+	
+	#Model 2
+	X2 = np.tile(tes,(1,Nm))*mumask.transpose()/t2smask.transpose()
+	
+	for i in range(nc):
+		
+		#Compute percent variance explained
+		comptab2[i,0] = i
+		comptab2[i,3] = (WTS[:,i]**2).sum()/totvar*100.
+		comptab2[i,4] = scoreatpercentile(np.abs(PSC[:,i]),90)
+
+		#size of B is (nc, nx*ny*nz)
+		B = np.atleast_3d(betamask)[:,:,i].transpose()
+		alpha = (np.abs(B)**2).sum(axis=0)
+		
+		#S0 Model
+		coeffs_S0 = (B*X1).sum(axis=0)/(X1**2).sum(axis=0)
+		SSE_S0 = (B - X1*np.tile(coeffs_S0,(Ne,1)))**2
+		SSE_S0 = SSE_S0.sum(axis=0)
+		F_S0 = (alpha - SSE_S0)*2/(SSE_S0)
+		
+		#R2 Model
+		coeffs_R2 = (B*X2).sum(axis=0)/(X2**2).sum(axis=0)
+		SSE_R2 = (B - X2*np.tile(coeffs_R2,(Ne,1)))**2
+		SSE_R2 = SSE_R2.sum(axis=0)
+		F_R2 = (alpha - SSE_R2)*2/(SSE_R2)
+		
+		#Grab weights
+		wtsZ=np.abs((WTS[:,i]-WTS[:,i].mean())/WTS[:,i].std())
+		wtsZ[wtsZ>Z_MAX]=Z_MAX
+		
+		if i == 0:
+			max_Kp = -1
+			max_Rp = -1
+			max_kappa = -1
+			max_rho = -1
+			for KRp_i in range(len(KRps)):
+				KRp = KRps[KRp_i]
+				wtsZp = np.power(wtsZ,KRp)
+				F_R2[F_R2>F_MAX]=F_MAX
+				F_S0[F_S0>F_MAX]=F_MAX
+				kappa = np.average(F_R2,weights = wtsZp)
+				rho   = np.average(F_S0,weights = wtsZp)
+				if kappa > max_kappa: 
+					max_Kp = KRp
+					max_kappa = kappa
+				if rho > max_rho: 
+					max_Rp = KRp
+					max_rho = rho
+			KRp_start = 1.5; KRp_stop=np.max([max_Kp,max_Rp]); KRsamps = 20 
+			KRps=np.unique(np.hstack([np.linspace(KRp_start,KRp_stop,KRsamps),[2.]]))
+			KRsamps = len(KRps)
+			KRps.sort()
+			KRd=np.zeros([nc,2,KRsamps])
+
+
+		for KRp_i in range(len(KRps)):
+			KRp = KRps[KRp_i]
+			wtsZp = np.power(wtsZ,KRp)
+			F_R2[F_R2>F_MAX]=F_MAX
+			F_S0[F_S0>F_MAX]=F_MAX
+			kappa = np.average(F_R2,weights = wtsZp)
+			rho   = np.average(F_S0,weights = wtsZp)
+			print "Power: %.1f Comp %d Kappa: %f Rho %f" %(KRp, i,kappa,rho)		
+			if KRp==2:
+				comptab2[i,1] = kappa
+				comptab2[i,2] = rho
+			KRd[i,0,KRp_i] = kappa
+			KRd[i,1,KRp_i] = rho
+
+		#Get p-value of F-value
+
+		#import ipdb; ipdb.set_trace()
+		#norm.ppf((0.05)/2)
+		#SS.fdtrc(1,2,38.5)
+
+		if fout is not None:
+			out = np.zeros((nx,ny,nz,4))
+			name = "cc%.3d.nii"%i
+			out[:,:,:,0] = np.squeeze(unmask(PSC[:,i],mask))
+			out[:,:,:,1] = np.squeeze(unmask(F_R2,mask))
+			out[:,:,:,2] = np.squeeze(unmask(F_S0,mask))
+			out[:,:,:,3] = np.squeeze(unmask(wtsZ,mask))
+			niwrite(out,fout,name)
+			os.system('3drefit -sublabel 0 PSC -sublabel 1 F_R2  -sublabel 2 F_SO %s 2> /dev/null > /dev/null'%name)
+
+	comptab = comptab2
+
+	if reindex:
+		comptab = comptab2[comptab2[:,1].argsort()[::-1],:]
+		mmix = mmix[:,comptab[:,0].tolist()]
+		betas = betas[:,:,:,:,comptab[:,0].tolist()]
+		KRd = KRd[comptab[:,0].tolist(),:,:]
+		comptab = np.hstack([np.atleast_2d(np.arange(nc)).T,comptab[:,1:]])
+
+	return comptab, KRd, betas, mmix
+
+def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
+	"""
+   	Usage:
+   	
+   	fitmodels2(fout)
+	
+   	Input:
+   	fout is flag for output of per-component TE-dependence maps
+   	t2s is a (nx,ny,nz) ndarray
+   	tes is a 1d array
+   	"""
+
+   	#Compute opt. com. raw data
+	tsoc = np.array(optcom(catd,t2s,tes,mask),dtype=float)[mask]
+	tsoc_dm = tsoc-tsoc.mean(axis=-1)[:,np.newaxis]
+	
+	#Compute un-normalized weight dataset (features)
+	if mmixN == None: mmixN=mmix
+	WTS = computefeats2(unmask(tsoc,mask),mmixN,mask,normalize=False)
+
+	#Compute skews to determine signs based on unnormalized weights, correct mmix & WTS signs based on spatial distribution tails
+	from scipy.stats import skew
+	signs = skew(WTS,axis=0)
+	signs /= np.abs(signs)
+	mmix = mmix.copy()
+	mmix*=signs
+	WTS*=signs
+	totvar = (WTS**2).sum()
+
+	#Compute PSC dataset
+	tsoc_B = get_coeffs(unmask(tsoc_dm,mask),mask,mmix)[mask]
+	PSC = tsoc_B/tsoc.mean(axis=-1)[:,np.newaxis]*100
+	
+	#Compute Betas and means over TEs for TE-dependence analysis
+	Ne = tes.shape[0]
+	betas = cat2echos(get_coeffs(uncat2echos(catd,Ne),np.tile(mask,(1,1,Ne)),mmix),Ne)
+	nx,ny,nz,Ne,nc = betas.shape
+	Nm = mask.sum()
+	mu = catd.mean(axis=-1)
+	tes = np.reshape(tes,(Ne,1))
+
+	#Mask arrays
+	mumask   = fmask(mu,mask)
+	t2smask  = fmask(t2s,mask)
+	betamask = fmask(betas,mask)
+
+	#Setup Xmats
+	#Model 1
+	X1 = mumask.transpose()
+	
+	#Model 2
+	X2 = np.tile(tes,(1,Nm))*mumask.transpose()/t2smask.transpose()
+	
+	volf = np.zeros([nc,2])
+	Zvals = np.zeros([nc])
+	Kappas = np.zeros([nc])
+	Rhos = np.zeros([nc])
+	varex = np.zeros([nc])
+	F_R2_maps = np.zeros([Nm,nc])
+	F_S0_maps = np.zeros([Nm,nc])
+
+	for i in range(nc):
+
+		#size of B is (nc, nx*ny*nz)
+		B = np.atleast_3d(betamask)[:,:,i].transpose()
+		alpha = (np.abs(B)**2).sum(axis=0)
+		varex[i] = (WTS[:,i]**2).sum()/totvar*100.
+
+		#S0 Model
+		coeffs_S0 = (B*X1).sum(axis=0)/(X1**2).sum(axis=0)
+		SSE_S0 = (B - X1*np.tile(coeffs_S0,(Ne,1)))**2
+		SSE_S0 = SSE_S0.sum(axis=0)
+		F_S0 = (alpha - SSE_S0)*2/(SSE_S0)
+		F_S0_maps[:,i] = F_S0
+
+		#R2 Model
+		coeffs_R2 = (B*X2).sum(axis=0)/(X2**2).sum(axis=0)
+		SSE_R2 = (B - X2*np.tile(coeffs_R2,(Ne,1)))**2
+		SSE_R2 = SSE_R2.sum(axis=0)
+		F_R2 = (alpha - SSE_R2)*2/(SSE_R2)
+		F_R2_maps[:,i] = F_R2
+
+		#Grab weights
+		wtsZ=np.abs((WTS[:,i]-WTS[:,i].mean())/WTS[:,i].std())
+		wtsZ[wtsZ>Z_MAX]=Z_MAX
+
+		#Save out files
+		out = np.zeros((nx,ny,nz,4))
+		name = "cc%.3d.nii"%i
+		out[:,:,:,0] = np.squeeze(unmask(PSC[:,i],mask))
+		out[:,:,:,1] = np.squeeze(unmask(F_R2,mask))
+		out[:,:,:,2] = np.squeeze(unmask(F_S0,mask))
+		out[:,:,:,3] = np.squeeze(unmask(wtsZ,mask))
+		niwrite(out,fout,name)
+		os.system('3drefit -sublabel 0 PSC -sublabel 1 F_R2  -sublabel 2 F_SO %s 2> /dev/null > /dev/null'%name)
+
+		#Do simple clustering
+		csize = np.max([int(Nm*0.001),20]) #To Do: Make size selection more principled
+		os.system('3dmerge -overwrite -dxyz=1 -1clust 1 %i -1dindex 3 -1tindex 3 -1thresh 1.95 -prefix cl_%s %s' % (csize,name,name))
+		sel = fmask(nib.load('cl_%s' % name).get_data(),mask)!=0
+
+		#Compute Z-value for gain of R2 over S0
+		s0test = np.log(F_S0[sel])/2
+		r2test = np.log(F_R2[sel])/2
+		r2Vs0 = stats.ttest_ind(r2test,s0test,equal_var=False)
+		Zu = stats.norm.ppf(1-r2Vs0[1]/2)
+		if np.isinf(Zu): Zu=100
+		Zvals[i] = Zu*r2Vs0[0]/np.abs(r2Vs0[0])
+
+		#Compute Kappa and Rho
+		F_S0[F_S0>F_MAX] = F_MAX
+		F_R2[F_R2>F_MAX] = F_MAX
+		Kappas[i] = np.average(F_R2,weights=wtsZ**2.)
+		Rhos[i] = np.average(F_S0,weights=wtsZ**2.)
+
+	fmin,fmid,fmax = getfbounds(tes.shape[0])
+
+	#Accept components with K higher than elbow AND/OR with F_R2 definitely greater than F_S0 AND Rhos<fmid AND Kappa>fmin
+	acc = np.arange(nc)[andb([Zvals>3.2,andb([Kappas>Kappas[getelbow(Kappas)],Zvals>50])>=1,Rhos<fmid,Kappas>fmin])==4] #p<0.001
+
+	#Compare component PSC distribution with population PSC distribution
+	wtsZ = (WTS-WTS.mean(0))/WTS.std(0)
+	pop_psc = np.log(PSC[:,acc][andb([wtsZ[:,acc]>1.95,F_R2_maps[:,acc]>fmid])==2])
+	psc_Z = np.zeros([acc.shape[0]])
+	j = 0
+	for i in acc:
+		sam_psc = np.log(PSC[:,i][andb([wtsZ[:,i]>1.95,andb([F_R2_maps[:,i]>fmid,F_S0_maps[:,i]>fmax])>=1])==2])
+		samVpop = stats.ttest_ind(sam_psc,pop_psc,equal_var=False)
+		Zu = stats.norm.ppf(1-samVpop[1]/2)
+		if np.isinf(Zu): Zu = 100
+		psc_Z[j] = Zu*samVpop[0]/np.abs(samVpop[0])
+		j+=1
+
+	#Check PSC's at tails
+	pop_psc = PSC[:,acc][andb([wtsZ[:,acc]>1.95,F_R2_maps[:,acc]>fmid])==2]
+	pop_psc_tail = pop_psc[pop_psc>scoreatpercentile(pop_psc,90)]
+	psc_bs = np.array([pop_psc_tail[np.random.randint(0,pop_psc_tail.shape[0],np.random.randint(100,1000))].mean() for i in range(100)])
+	pop_mu = psc_bs.mean()
+	pop_sigma = psc_bs.std()
+	tail_psc_Z = np.zeros([acc.shape[0]])
+	j = 0
+	for i in acc:
+		sam_psc = PSC[:,i][andb([wtsZ[:,i]>1.95,F_R2_maps[:,i]>fmid])==2]
+		sam_psc_tail = sam_psc[sam_psc>scoreatpercentile(sam_psc,90)]
+		tail_psc_Z[j] = (sam_psc_tail.mean()-pop_mu)/pop_sigma
+		j+=1
+	tail_psc_Z_max = np.max([10]+list(tail_psc_Z[np.log(Kappas[acc])/2>1.95]))
+	Kelbow = Kappas[getelbow(Kappas)]
+	
+	#Check for outlier variance explained
+	varex_sam = varex[(Kappas/Rhos)[acc]>3]
+	varex_lim = varex_sam.mean()+3*varex_sam.std()
+
+	midk = sorted(set(list(acc[np.prod([np.log(Kappas[acc])/2<1.95,tail_psc_Z>tail_psc_Z_max],0)==1]) + \
+		list(acc[np.prod([Kappas[acc]<Kelbow,psc_Z>10],0)==1])+list(acc[andb([(Kappas/Rhos)[acc]<3,varex[acc]>varex_lim])==2])))
+	rej = sorted(list(set(range(nc))-set(acc)))
+	acc = sorted(list(set(acc)-set(midk)))
+
+	#import ipdb
+	#ipdb.set_trace()
+
+	return acc,rej,midk
 
 def selcomps(comptable):
 	fmin,fmid,fmax = getfbounds(ne)
@@ -498,7 +821,7 @@ def selcomps(comptable):
 	return acc.tolist(),rej.tolist(),mid.tolist()
 
 
-def selcomps_voter(ctb,KRd,margin=0.75,extend=False):
+def selcomps_voter(ctb,KRd,margin=0.5,extend=False):
 	fmin,fmid,fmax = getfbounds(ne)
 	nc = KRd.shape[0]
 	inds = np.atleast_2d(np.arange(nc)).T
@@ -515,8 +838,9 @@ def selcomps_voter(ctb,KRd,margin=0.75,extend=False):
 		print k_t,r_t
 		if extend: acc_list.append(ct[ct[:,2]<r_t,0])	
 		else:
-			sel = andb([ct[:,1]>=k_t, ct[:,2]<r_t])
-			acc_list.append(ct[sel==2,0])
+			#sel = andb([ct[:,1]>=k_t, ct[:,2]<r_t])
+			sel = andb([ct[:,2]<r_t])
+			acc_list.append(ct[sel==1,0])
 	#Find accepted with voting scheme
 	accs = []
 	for aa in acc_list: accs+=list(aa)
@@ -534,11 +858,16 @@ def selcomps_voter(ctb,KRd,margin=0.75,extend=False):
 	kappa_med = scoreatpercentile(ctb[accf.tolist(),1],2./3*100)
 	mid = list(accf[andb([ctb[accf.tolist(),4]>=psc_thr,ctb[accf.tolist(),1]<kappa_med])==2])
 	acc = list(set(accf)-set(mid))
-	#Find mid-Kappa components with low votes and outlier variance (1.5 x expected)
-	vartr = np.linalg.lstsq(np.array([np.ones(len(acc)),ctb[acc,1]]).T,ctb[acc,3])[0]
-	for cc in accf_mid:
-		if ctb[cc,1] <= fmax and ctb[cc,3] > vartr[0]+ctb[cc,1]*vartr[1]*1.5: mid+=[cc]
-	mid = list(set(mid))
+	print 'based on psc:', mid
+	#Find mid-Kappa components with low votes and outlier variance (2 x expected)
+	#vsi = ctb[acc,3]; vs=vsi[vsi<scoreatpercentile(vsi,90)]
+	#ks = ctb[acc,1]; ks=ks[vsi<scoreatpercentile(vsi,90)]
+	#vartr = np.linalg.lstsq(np.array([np.ones(len(vs)),ks]).T,vs)[0]
+	#for cc in accf_mid:
+	#	if ctb[cc,1] <= fmax and ctb[cc,3] > vartr[0]+ctb[cc,1]*vartr[1]*2: mid+=[cc]
+	#mid = list(set(mid))
+	print 'based on vartr:', mid
+	#import ipdb; ipdb.set_trace()
 	#Remove mid from acc
 	acc = list(set(accf)-set(mid))
 	rej = list(set(np.arange(nc))-set(accf)-set(mid))
@@ -599,14 +928,14 @@ def eimask(dd,ees=None):
 	imask = np.zeros([dd.shape[0],len(ees)])
 	for ee in ees:
 		print ee
-		lthr = 0.2*scoreatpercentile(dd[:,ee,:].flatten(),98)
+		lthr = 0.001*scoreatpercentile(dd[:,ee,:].flatten(),98)
 		hthr = 5*scoreatpercentile(dd[:,ee,:].flatten(),98)
 		print lthr,hthr
 		imask[dd[:,ee,:].mean(1) > lthr,ee]=1
 		imask[dd[:,ee,:].mean(1) > hthr,ee]=0
 	return imask
 
-def tedpca(ste=0):
+def tedpca(ste=0,wdata=None):
 	nx,ny,nz,ne,nt = catd.shape
 	ste = np.array([int(ee) for ee in str(ste).split(',')])
 	if len(ste) == 1 and ste[0]==-1:
@@ -626,6 +955,7 @@ def tedpca(ste=0):
 		d = np.float64(np.concatenate([fmask(catd[:,:,:,ee,:],mask)[:,np.newaxis,:] for ee in ste-1],axis=1))
 		eim = eimask(d)==1
 		d = d[eim]
+
 	
 	dz = ((d.T-d.T.mean(0))/d.T.std(0)).T #Variance normalize timeseries
 	dz = (dz-dz.mean())/dz.std() #Variance normalize everything
@@ -650,15 +980,9 @@ def tedpca(ste=0):
 		
 	#Compute K and Rho for PCA comps
 	eimum = np.array(np.squeeze(unmask(np.array(eim,dtype=np.int).prod(1),mask)),dtype=np.bool)
-	betasv = get_coeffs(catim.get_data()-catim.get_data().mean(-1)[:,:,:,np.newaxis],np.tile(eimum,(1,1,Ne)),v.T)
-	betasv = cat2echos(betasv,Ne)
-
-	#ipdb.set_trace()
 	vTmix = v.T
 	vTmixN =((vTmix.T-vTmix.T.mean(0))/vTmix.T.std(0)).T
 	ctb,KRd,betasv,v_T = fitmodels2(catd,v.T,eimum,t2s,tes,mmixN=vTmixN)
-	#ctb,KRd,betasv,v_T = fitmodels2__(catd,v.T,eimum,t2s,tes)
-	#ctb = fitmodels(betasv,t2s,mu,eimum,tes,sig=sig,fout=None,pow=2)
 	ctb = ctb[ctb[:,0].argsort(),:]
 	ctb = np.vstack([ctb.T[0:3],sp]).T
 	
@@ -667,8 +991,6 @@ def tedpca(ste=0):
 	kappas = ctb[ctb[:,1].argsort(),1]
 	rhos = ctb[ctb[:,2].argsort(),2]
 	fmin,fmid,fmax = getfbounds(ne)
-	#kappa_thr = 18.5
-	#rho_thr = 18.5
 	kappa_thr = np.average(sorted([fmin,kappas[getelbow(kappas)]/2,fmid]),weights=[kdaw,1,1])
 	rho_thr = np.average(sorted([fmin,rhos[getelbow(rhos)]/2,fmid]),weights=[rdaw,1,1])
 	if int(kdaw)==-1:
@@ -692,10 +1014,121 @@ def tedpca(ste=0):
 	print pcsel
 	print "--Selected %i components. Minimum Kappa=%0.2f Rho=%0.2f" % (nc,kappa_thr,rho_thr)
 	
+	#import ipdb
+	#ipdb.set_trace()
+
+	#OCd = np.dot(betasv[:,:,:,:,pcsel],v[pcsel,:])
+	#OCd = optcom(OCd,t2s,tes,mask)
+	#OCmask = makemask(OCd[:,:,:,np.newaxis,:])
+	#e0d = fmask(catd[:,:,:,0,:],OCmask)
+	#OCd = fmask(OCd,OCmask)
+	#dd = np.vstack([e0d,OCd])
+
+	#import ipdb; ipdb.set_trace()
+
 	dd = ((dd.T-dd.T.mean(0))/dd.T.std(0)).T #Variance normalize timeseries
 	dd = (dd-dd.mean())/dd.std() #Variance normalize everything
 
 	return nc,dd
+
+def tedpca(ste=0):
+	nx,ny,nz,ne,nt = catd.shape
+	ste = np.array([int(ee) for ee in str(ste).split(',')])
+	if len(ste) == 1 and ste[0]==-1:
+		print "-Computing PCA of optimally combined multi-echo data"
+		OCcatd = optcom(catd,t2s,tes,mask)
+		OCmask = makemask(OCcatd[:,:,:,np.newaxis,:])
+		d = fmask(OCcatd,OCmask)
+		eim = eimask(d[:,np.newaxis,:])
+		eim = eim[:,0]==1
+		d = d[eim,:]
+		#ipdb.set_trace()
+	elif len(ste) == 1 and ste[0]==0:
+		print "-Computing PCA of spatially concatenated multi-echo data"
+		ste = np.arange(ne)
+		d = np.float64(fmask(catd,mask))
+		eim = eimask(d)==1
+		d = d[eim]
+	else:
+		print "-Computing PCA of TE #%s" % ','.join([str(ee) for ee in ste])
+		d = np.float64(np.concatenate([fmask(catd[:,:,:,ee,:],mask)[:,np.newaxis,:] for ee in ste-1],axis=1))
+		eim = eimask(d)==1
+		d = d[eim]
+
+	dz = ((d.T-d.T.mean(0))/d.T.std(0)).T #Variance normalize timeseries
+	dz = (dz-dz.mean())/dz.std() #Variance normalize everything
+	
+	##Do PC dimension selection
+	#Get eigenvalue cutoff
+	u,s,v = np.linalg.svd(dz,full_matrices=0)
+	sp = s/s.sum()
+	eigelb = sp[getelbow(sp)]
+
+	spdif = np.abs(sp[1:]-sp[:-1])
+	spdifh = spdif[spdif.shape[0]/2:]
+	spdmin = spdif.min()
+	spdthr = np.mean([spdifh.max(),spdmin])
+	spmin = sp[(spdif.shape[0]/2)+(np.arange(spdifh.shape[0])[spdifh>=spdthr][0])+1]
+	spcum = []
+	spcumv = 0
+	for sss in sp:
+		spcumv+=sss
+		spcum.append(spcumv)
+	spcum = np.array(spcum)
+		
+	#Compute K and Rho for PCA comps
+	eimum = np.array(np.squeeze(unmask(np.array(np.atleast_2d(eim).T,dtype=np.int).prod(1),mask)),dtype=np.bool)
+	vTmix = v.T
+	vTmixN =((vTmix.T-vTmix.T.mean(0))/vTmix.T.std(0)).T
+	ctb,KRd,betasv,v_T = fitmodels2(catd,v.T,eimum,t2s,tes,mmixN=vTmixN)
+	ctb = ctb[ctb[:,0].argsort(),:]
+	ctb = np.vstack([ctb.T[0:3],sp]).T
+	
+	np.savetxt('comp_table_pca.txt',ctb[ctb[:,1].argsort(),:][::-1])
+	np.savetxt('mepca_mix.1D',v[ctb[:,1].argsort()[::-1],:].T)
+	kappas = ctb[ctb[:,1].argsort(),1]
+	rhos = ctb[ctb[:,2].argsort(),2]
+	fmin,fmid,fmax = getfbounds(ne)
+	kappa_thr = np.average(sorted([fmin,kappas[getelbow(kappas)]/2,fmid]),weights=[kdaw,1,1])
+	rho_thr = np.average(sorted([fmin,rhos[getelbow(rhos)]/2,fmid]),weights=[rdaw,1,1])
+	if int(kdaw)==-1:
+		kappas_lim = kappas[andb([kappas<fmid,kappas>fmin])==2]
+		#kappas_lim = kappas[andb([kappas<kappas[getelbow(kappas)],kappas>fmin])==2]
+		kappa_thr = kappas_lim[getelbow(kappas_lim)]
+		rhos_lim = rhos[andb([rhos<fmid,rhos>fmin])==2]
+		rho_thr = rhos_lim[getelbow(rhos_lim)]
+		options.stabilize=True
+	if int(kdaw)!=-1 and int(rdaw)==-1:
+		rhos_lim = rhos[andb([rhos<fmid,rhos>fmin])==2]
+		rho_thr = rhos_lim[getelbow(rhos_lim)]
+	if options.stabilize:
+		pcscore = (np.array(ctb[:,1]>kappa_thr,dtype=np.int)+np.array(ctb[:,2]>rho_thr,dtype=np.int)+np.array(ctb[:,3]>eigelb,dtype=np.int))*np.array(ctb[:,3]>spmin,dtype=np.int)*np.array(spcum<0.95,dtype=np.int)*np.array(ctb[:,2]>fmin,dtype=np.int)*np.array(ctb[:,1]>fmin,dtype=np.int)*np.array(ctb[:,1]!=F_MAX,dtype=np.int)*np.array(ctb[:,2]!=F_MAX,dtype=np.int) 
+	else:
+		pcscore = (np.array(ctb[:,1]>kappa_thr,dtype=np.int)+np.array(ctb[:,2]>rho_thr,dtype=np.int)+np.array(ctb[:,3]>eigelb,dtype=np.int))*np.array(ctb[:,3]>spmin,dtype=np.int)*np.array(ctb[:,1]!=F_MAX,dtype=np.int)*np.array(ctb[:,2]!=F_MAX,dtype=np.int)
+	pcsel = pcscore > 0 
+	pcrej = np.array(pcscore==0,dtype=np.int)*np.array(ctb[:,3]>spmin,dtype=np.int) > 0
+	dd = u.dot(np.diag(s*np.array(pcsel,dtype=np.int))).dot(v)
+	nc = s[pcsel].shape[0]
+	print pcsel
+	print "--Selected %i components. Minimum Kappa=%0.2f Rho=%0.2f" % (nc,kappa_thr,rho_thr)
+	
+	#import ipdb
+	#ipdb.set_trace()
+
+	#OCd = np.dot(betasv[:,:,:,:,pcsel],v[pcsel,:])
+	#OCd = optcom(OCd,t2s,tes,mask)
+	#OCmask = makemask(OCd[:,:,:,np.newaxis,:])
+	#e0d = fmask(catd[:,:,:,0,:],OCmask)
+	#OCd = fmask(OCd,OCmask)
+	#dd = np.vstack([e0d,OCd])
+
+	#import ipdb; ipdb.set_trace()
+
+	dd = ((dd.T-dd.T.mean(0))/dd.T.std(0)).T #Variance normalize timeseries
+	dd = (dd-dd.mean())/dd.std() #Variance normalize everything
+
+	return nc,dd
+
 
 def tedica(dd,cost):
 	"""
@@ -715,10 +1148,16 @@ def tedica(dd,cost):
 def write_split_ts(data,comptable,mmix,suffix=''):
 	mdata = fmask(data,mask)
 	betas = fmask(get_coeffs(unmask((mdata.T-mdata.T.mean(0)).T,mask),mask,mmix),mask)
+	dmdata = mdata.T-mdata.T.mean(0)
+	print 'Variance explained: ', (1-((dmdata.T-betas.dot(mmix.T))**2.).sum()/(dmdata**2.).sum())*100 , '%'
+	#mmixR = filtermix_fourier(mmix[:,acc])
 	niwrite(unmask(betas[:,acc].dot(mmix.T[acc,:]),mask),aff,'_'.join(['hik_ts',suffix])+'.nii')
-	if len(midk)!=0: niwrite(unmask(betas[:,midk].dot(mmix.T[midk,:]),mask),aff,'_'.join(['midk_ts',suffix])+'.nii')
-	niwrite(unmask(betas[:,rej].dot(mmix.T[rej,:]),mask),aff,'_'.join(['lowk_ts',suffix])+'.nii')
-	niwrite(unmask(fmask(data,mask)-betas.dot(mmix.T),mask),aff,'_'.join(['resid_ts',suffix])+'.nii')
+	#niwrite(unmask(betas[:,acc].dot(mmixR.T),mask),aff,'_'.join(['hik_tsR',suffix])+'.nii')
+	midkts = betas[:,midk].dot(mmix.T[midk,:])
+	lowkts = betas[:,rej].dot(mmix.T[rej,:])
+	if len(midk)!=0: niwrite(unmask(midkts,mask),aff,'_'.join(['midk_ts',suffix])+'.nii')
+	niwrite(unmask(lowkts,mask),aff,'_'.join(['lowk_ts',suffix])+'.nii')
+	niwrite(unmask(fmask(data,mask)-lowkts-midkts,mask),aff,'_'.join(['dn_ts',suffix])+'.nii')
 
 def split_ts(data,comptable,mmix):
 	cbetas = get_coeffs(data-data.mean(-1)[:,:,:,np.newaxis],mask,mmix)
@@ -789,12 +1228,20 @@ def writect2(comptable,ctname=''):
 
 def filtermix_fourier(xmat):
 	#Save xmat
+	##Grab a 4th order poly basis
+	#Take derivs of xmat, find censor points
+	#Censor poly and xmart at censor points, fit poly, save and subtract fit
 	if len(xmat.shape)==1: xmat = np.atleast_2d(xmat).T
 	np.savetxt('xmat.1D',xmat)
 	os.system("waver -dt `3dinfo -tr ../%s` -GAM -inline 1@1 > GammaHR.1D" % (options.data)  )
 	#Deconvolve
 	os.system("3dTfitter -RHS %s -FALTUNG GammaHR.1D %s_dc 012 0"  % ('xmat.1D','xmat') )
 	xmat_dc = np.atleast_2d(np.loadtxt("xmat_dc.1D")).T
+	#Detrend
+	os.system("1dBport -band 0 0.005 -input ../%s  > bport.1D" % options.data)
+	dtr = np.loadtxt("bport.1D")
+	lss = np.linalg.lstsq(dtr,xmat_dc)
+	xmat_dcr = xmat_dc - np.dot(lss[0].T,dtr.T).T
 	#Build Fourier basis
 	os.system("1dBport -band 0 99 -input ../%s  > bport.1D" % options.data)
 	bpb = np.loadtxt("bport.1D")
@@ -803,15 +1250,17 @@ def filtermix_fourier(xmat):
 	#For each component, find outlier time points, fit limited 
 	#Fourier basis, and expand for Fourier interpolation
 	for cc in range(xmat_dc.shape[1]):
-		xz = (xmat_dc[:,cc]-np.mean(xmat_dc[:,cc]))/np.std(xmat_dc[:,cc])
-		xz_l = xmat_dc[andb([xz>=-2,xz<2])==2,cc]
-		bpb_l = bpb[andb([xz>=-2,xz<2])==2,:]
+		xz = (xmat_dcr[:,cc]-np.mean(xmat_dcr[:,cc]))/np.std(xmat_dcr[:,cc])
+		#xz_l = xmat_dc[andb([xz>=-2,xz<2])==2,cc]
+		#bpb_l = bpb[andb([xz>=-2,xz<2])==2,:]
+		xz_l = xmat_dc[ xz>=-2,cc ]
+		bpb_l = bpb[ xz>=-2,: ]
 		lss = np.linalg.lstsq(bpb_l,xz_l)
 		x_r = bpb.dot(lss[0])
 		np.savetxt('_x_r.1D',x_r)
 		os.system("waver -dt `3dinfo -tr ../%s` -GAM -input _x_r.1D > _x_rc.1D" % (options.data))
 		x_rc = np.loadtxt('_x_rc.1D')[:xmat.shape[0]].T
-		x_rc = (x_rc-x_rc.mean())/x_rc.std()
+		#x_rc = (x_rc-x_rc.mean())/x_rc.std()
 		xmat_r[:,cc] = x_rc
 	return xmat_r
 
@@ -887,7 +1336,8 @@ if __name__=='__main__':
 		nc,dd = tedpca(options.ste)
 		mmix_orig = tedica(dd,cost=options.initcost)
 		comptable,KRd,betas,mmix = fitmodels2(catd,mmix_orig,mask,t2s,tes,options.fout,reindex=True)
-		acc,rej,midk = selcomps_voter(comptable,KRd,extend=options.extend)
+		#acc,rej,midk = selcomps_voter(comptable,KRd,extend=options.extend)
+		acc,rej,midk = fitmodels_direct(catd,mmix,mask,t2s,tes)
 		np.savetxt('meica_mix.1D',mmix)
 		del dd
 	else:
@@ -895,8 +1345,9 @@ if __name__=='__main__':
 		eim = eimask(np.float64(fmask(catd,mask)))==1
 		eimum = np.array(np.squeeze(unmask(np.array(eim,dtype=np.int).prod(1),mask)),dtype=np.bool)
 		comptable,KRd,betas,mmix = fitmodels2(catd,mmix_orig,mask,t2s,tes,options.fout)
-		acc,rej,midk = selcomps_voter(comptable,KRd,extend=options.extend)
-
+		#acc,rej,midk = selcomps_voter(comptable,KRd,extend=options.extend)
+		acc,rej,midk = fitmodels_direct(catd,mmix_orig,mask,t2s,tes)
+		
         if options.dmix!='':
             dndata = np.dot(betas[:,:,:,:,acc],(mmix[:,acc].T))
             dndata = uncat2echos(dndata,Ne)
