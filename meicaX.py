@@ -116,7 +116,9 @@ extopts=OptionGroup(parser,"Extended preprocessing options")
 extopts.add_option('',"--t2salign",action="store_true",dest='t2salign',help="T2* weighted affine anatomical coregistration",default=False)
 extopts.add_option('',"--no_skullstrip",action="store_true",dest='no_skullstrip',help="Anatomical is already skullstripped (if -a provided)",default=False)
 extopts.add_option('',"--maskpeels",dest='maskpeels',help="Functional masking factor, increase for more aggressive masking, default 3",default=3)
-extopts.add_option('',"--tlrc",dest='tlrc',help="Normalize to Talairach space, specify base, ex: --tlrc TT_N27+tlrc",default=False)
+extopts.add_option('',"--tlrc",dest='tlrc',help="Affine coregistration to Talairach space, specify base, ex: --tlrc TT_N27+tlrc",default=False)
+extopts.add_option('',"--qwarp",dest='qwarp',action='store_true',help="Nonlinear coregistration after affine (3dQWarp) to --tlrc base, recommended: --tlrc MNI_caez_N27+tlrc",default=False)
+extopts.add_option('',"--qwfres",dest='qwfres',help="Nonlinear functional warp voxel dimension (isotropic) in mm., ex: -qwfres=2", default=False)
 extopts.add_option('',"--align_args",dest='align_args',help="Additional arguments for 3dAllineate EPI-anatomical alignment",default='')
 extopts.add_option('',"--align_base",dest='align_base',help="Explicitly specify base dataset for volume registration",default='')
 extopts.add_option('',"--TR",dest='TR',help="The TR. Default read from input datasets",default='')
@@ -126,7 +128,7 @@ extopts.add_option('',"--detrend",dest='detrend',help="Polynomial detrend order 
 parser.add_option_group(extopts)
 icaopts=OptionGroup(parser,"Extended ICA options (see tedana.py -h")
 icaopts.add_option('',"--daw",dest='daw',help="Dimensionality increase weight. Default 10. For low tSNR data, use -1",default='10')
-icaopts.add_option('',"--initcost",dest='initcost',help="Initial cost for ICA",default='pow3')
+icaopts.add_option('',"--initcost",dest='initcost',help="Initial cost for ICA",default='tanh')
 icaopts.add_option('',"--finalcost",dest='finalcost',help="Final cost for ICA",default='tanh')
 icaopts.add_option('',"--sourceTEs",dest='sourceTEs',help="Source TEs for ICA",default='-1')
 parser.add_option_group(icaopts)
@@ -226,6 +228,8 @@ if oblique_epi_read or oblique_anat_read:
 	oblique_mode = True
 	sl.append("echo Oblique data detected.")
 else: oblique_mode = False
+if options.qwfres: qwfres="-dxyz %s" % options.qwfres
+else: qwfres=""
 
 #Prepare script and enter MEICA directory
 sl.append('export OMP_NUM_THREADS=%s' % (options.cpus))
@@ -345,14 +349,24 @@ if options.anat!='':
 	if options.tlrc:
 		sl.append("afnibinloc=`which 3dSkullStrip`")
 		sl.append("templateloc=${afnibinloc%/*}")
-		atnsmprage = "%s_at.nii" % (dsprefix(nsmprage))
+		atnsmprage = "%s_at.nii.gz" % (dsprefix(nsmprage))
 		if not dssuffix(nsmprage).__contains__('nii'): sl.append("3dcalc -float -a %s -expr 'a' -prefix %s.nii.gz" % (nsmprage,dsprefix(nsmprage)))
-		sl.append("if [ ! -e %s ]; then \@auto_tlrc -no_ss -base ${templateloc}/%s -input %s.nii.gz -suffix _at; fi " % (atnsmprage,options.tlrc,dsprefix(nsmprage)))
-		sl.append("3dcopy %s %s" % (atnsmprage,dsprefix(atnsmprage)))
+		#If can't find tlrc'd anatomical, compute it and copy back to source directory
+		sl.append("if [ ! -e %s/%s ]; then \@auto_tlrc -no_ss -base ${templateloc}/%s -input %s.nii.gz -suffix _at" % (startdir,atnsmprage,options.tlrc,dsprefix(nsmprage)))
+		sl.append("cp %s.nii %s" % (dsprefix(atnsmprage),startdir))
+		sl.append("gzip -f %s/%s.nii" % (startdir,dsprefix(atnsmprage)))
+		sl.append("else ln -s %s/%s ." % (startdir,atnsmprage))
+		sl.append("fi")
+		sl.append("3dcopy %s/%s.nii.gz %s" % (startdir,dsprefix(atnsmprage),dsprefix(atnsmprage)))
 		sl.append("3drefit -view orig %s+tlrc " % dsprefix(atnsmprage) )
-		sl.append("cp %s %s" % (atnsmprage,startdir))
-		sl.append("gzip -f %s/%s" % (startdir,atnsmprage))
-		abmprage = atnsmprage
+		sl.append("3dAutobox -prefix ./abtemplate.nii.gz ${templateloc}/%s" % options.tlrc)
+		abmprage = 'abtemplate.nii.gz'
+		if options.qwarp:
+			nlatnsmprage="%s_atnl.nii.gz" % (dsprefix(nsmprage))
+			sl.append("if [ ! -e %s/%s ]; then " % (startdir,nlatnsmprage))
+			sl.append("3dUnifize -overwrite -GM -prefix ./%su.nii.gz %s/%s" % (dsprefix(atnsmprage),startdir,atnsmprage))  
+			sl.append("3dQwarp -iwarp -overwrite -resample -duplo -useweight -blur 2 2 -workhard -base ${templateloc}/%s -prefix %s/%snl.nii.gz -source ./%su.nii.gz" % (options.tlrc,startdir,dsprefix(atnsmprage),dsprefix(atnsmprage)))
+			sl.append("fi")
 	align_args=""
 	#Modify 3dAllineate options appropriately
 	if options.align_args!="": align_args=options.align_args
@@ -361,7 +375,7 @@ if options.anat!='':
 	if oblique_mode: alnsmprage = "./%s_ob.nii.gz" % (anatprefix)
 	else: alnsmprage = "%s/%s" % (startdir,nsmprage)
 	sl.append("3dAllineate -weight_frac 1.0 -VERB -warp aff %s -source_automask -cmass -master SOURCE -source %s -prefix ./%s_al -1Dmatrix_save %s_al_mat %s" % (weightline,alnsmprage, anatprefix,anatprefix,align_args))
-	if options.tlrc: tlrc_opt = "%s::WARP_DATA -I" % (atnsmprage)
+	if options.tlrc: tlrc_opt = "%s/%s::WARP_DATA -I" % (startdir,atnsmprage)
 	else: tlrc_opt = ""
 	if oblique_mode: oblique_opt = "%s_obla2e_mat.1D" % prefix
 	else: oblique_opt = ""
@@ -390,17 +404,27 @@ for echo_ii in range(len(datasets)):
 
 	if echo_ii == 0: 
 		if zeropad_opts!="" : sl.append("3dZeropad %s -prefix _eBvrmask.nii.gz %s_ts+orig[%s]" % (zeropad_opts,dsin,basebrik))
-		sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base _eBvrmask.nii.gz -input _eBvrmask.nii.gz -prefix ./_eBvrmask.nii.gz" % \
-			(align_interp,align_interp,prefix))
-		sl.append("3dAutomask -dilate 1 -peels %s -overwrite -prefix eBvrmask%s _eBvrmask%s" % (str(options.maskpeels),osf,osf))
+		#Create base mask
+		if options.qwarp: sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D{%s}' -master %s %s -source _eBvrmask.nii.gz -interp %s -prefix ./_eBvrmask.nii.gz " % \
+			(startdir,dsprefix(nlatnsmprage),prefix,basebrik,abmprage,qwfres,align_interp))
+		else: sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base _eBvrmask.nii.gz -input _eBvrmask.nii.gz -prefix ./_eBvrmask.nii.gz" % \
+			(align_interp,align_interp,prefix,basebrik))
+		if options.qwarp: 
+			sl.append("3dUnifize -prefix _eBvrmask.nii.gz -overwrite _eBvrmask.nii.gz")
+			sl.append("3dSkullStrip -input _eBvrmask.nii.gz -prefix eBvrmask.nii.gz -no_avoid_eyes")
+			sl.append("3dcalc -a eBvrmask.nii.gz -expr 'step(a)' -prefix eBvrmask.nii.gz -overwrite")
+		else: sl.append("3dAutomask -dilate 1 -peels %s -overwrite -prefix eBvrmask%s _eBvrmask%s" % (str(options.maskpeels),osf,osf))
+		#Do grand mean scaling
 		sl.append("3dBrickStat -mask eBvrmask.nii.gz -percentile 50 1 50  _eBvrmask.nii.gz > gms.1D" )
-		if options.anat!='':
+		if options.anat!='' and not options.qwarp:
 			sl.append("3dresample -overwrite -rmode NN -dxyz `3dinfo -ad3 eBvrmask.nii.gz` -inset eBvrmask.nii.gz -prefix eBvrmask.nii.gz -master %s" % (abmprage))
 		else:
 			sl.append("3dAutobox -overwrite -prefix eBvrmask%s eBvrmask%s" % (osf,osf) )
 		sl.append("3dcalc -float -a eBvrmask.nii.gz -expr 'notzero(a)' -overwrite -prefix eBvrmask.nii.gz")
 	
-	sl.append("3dAllineate -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base eBvrmask%s -input  %s_ts+orig -prefix ./%s_vr%s" % \
+	if options.qwarp: sl.append("3dNwarpApply -nwarp '%s/%s_WARP.nii.gz' -affter %s_wmat.aff12.1D -master eBvrmask.nii.gz -source %s_ts+orig -interp %s -prefix ./%s_vr%s " % \
+			(startdir,dsprefix(nlatnsmprage),prefix,dsin,align_interp,dsin,osf))
+	else: sl.append("3dAllineate -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base eBvrmask%s -input  %s_ts+orig -prefix ./%s_vr%s" % \
 		(align_interp,align_interp,prefix,osf,dsin,dsin,osf))
 	
 	if options.FWHM=='0mm': 
