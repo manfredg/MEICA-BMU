@@ -653,7 +653,8 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 
    	#Compute opt. com. raw data
 	tsoc = np.array(optcom(catd,t2s,tes,mask),dtype=float)[mask]
-	tsoc_dm = tsoc-tsoc.mean(axis=-1)[:,np.newaxis]
+	tsoc_mean = tsoc.mean(axis=-1)
+	tsoc_dm = tsoc-tsoc_mean[:,np.newaxis]
 	
 	#Compute un-normalized weight dataset (features)
 	if mmixN == None: mmixN=mmix
@@ -699,6 +700,7 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 	varex = np.zeros([nc])
 	F_R2_maps = np.zeros([Nm,nc])
 	F_S0_maps = np.zeros([Nm,nc])
+	sel_maps = np.zeros([Nm,nc])
 
 	for i in range(nc):
 
@@ -739,6 +741,7 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 		csize = np.max([int(Nm*0.001),20]) #To Do: Make size selection more principled
 		os.system('3dmerge -overwrite -dxyz=1 -1clust 1 %i -1dindex 3 -1tindex 3 -1thresh 1.95 -prefix cl_%s %s' % (csize,name,name))
 		sel = fmask(nib.load('cl_%s' % name).get_data(),mask)!=0
+		sel_maps[:,i] = sel
 
 		#Compute Z-value for gain of R2 over S0
 		s0test = np.log(F_S0[sel])/2
@@ -759,48 +762,41 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 	#Accept components with K higher than elbow AND/OR with F_R2 definitely greater than F_S0 AND Rhos<fmid AND Kappa>fmin
 	acc = np.arange(nc)[andb([Zvals>3.2,andb([Kappas>Kappas[getelbow(Kappas)],Zvals>50])>=1,Rhos<fmid,Kappas>fmin])==4] #p<0.001
 
-	#Compare component PSC distribution with population PSC distribution
-	wtsZ = (WTS-WTS.mean(0))/WTS.std(0)
-	pop_psc = np.log(PSC[:,acc][andb([wtsZ[:,acc]>1.95,F_R2_maps[:,acc]>fmid])==2])
-	psc_Z = np.zeros([acc.shape[0]])
-	j = 0
-	for i in acc:
-		sam_psc = np.log(PSC[:,i][andb([wtsZ[:,i]>1.95,andb([F_R2_maps[:,i]>fmid,F_S0_maps[:,i]>fmax])>=1])==2])
-		samVpop = stats.ttest_ind(sam_psc,pop_psc,equal_var=False)
-		Zu = stats.norm.ppf(1-samVpop[1]/2)
-		if np.isinf(Zu): Zu = 100
-		psc_Z[j] = Zu*samVpop[0]/np.abs(samVpop[0])
-		j+=1
+	"""Population F_R2 for normalized Betas in accepted and clustered comps, greater than respective median"""
+	#L2 normalize betas of accepted comps in time direction, then take abs
+	tsoc_acc_Bn = np.abs((tsoc_B[:,acc].T/np.sqrt((tsoc_B[:,acc]**2).sum(1))).T)
+	#Find median Bn of voxels that clustered previously in accepted components
+	med_acc_Bn = np.median(tsoc_acc_Bn[sel_maps[:,acc]==1])
+	#Get selection mask for clustered voxels of accepted compoennts with Bn > med_Bn
+	pop_acc_Bn_selmask = np.array(tsoc_acc_Bn > med_acc_Bn,dtype=np.int)+np.array(sel_maps[:,acc]==1,dtype=np.int)==2
+	#Get pop of F_R2[:,acc], then log10
+	pop_acc_Bn_FR2 = np.log10(F_R2_maps[:,acc][pop_acc_Bn_selmask])
 
-	#Check PSC's at tails
-	pop_psc = PSC[:,acc][andb([wtsZ[:,acc]>1.95,F_R2_maps[:,acc]>fmid])==2]
-	pop_psc_tail = pop_psc[pop_psc>scoreatpercentile(pop_psc,90)]
-	psc_bs = np.array([pop_psc_tail[np.random.randint(0,pop_psc_tail.shape[0],np.random.randint(100,1000))].mean() for i in range(100)])
-	pop_mu = psc_bs.mean()
-	pop_sigma = psc_bs.std()
-	tail_psc_Z = np.zeros([acc.shape[0]])
-	j = 0
-	for i in acc:
-		sam_psc = PSC[:,i][andb([wtsZ[:,i]>1.95,F_R2_maps[:,i]>fmid])==2]
-		sam_psc_tail = sam_psc[sam_psc>scoreatpercentile(sam_psc,90)]
-		tail_psc_Z[j] = (sam_psc_tail.mean()-pop_mu)/pop_sigma
-		j+=1
-	tail_psc_Z_max = np.max([10]+list(tail_psc_Z[np.log(Kappas[acc])/2>1.95]))
-	Kelbow = Kappas[getelbow(Kappas)]
+	#Get list of component percent signal changes at 95% percentile for accepted comps (thinking ~L0 i.e. min/max)
+	acc_PSCp98 = np.array([scoreatpercentile(PSC[:,ii][sel_maps[:,ii]==1],98) for ii in acc])
+	#Get 66th percentile of p98's as failure requirement for FR2 test
+	p75_acc_PSCp98 = scoreatpercentile(acc_PSCp98,75)
+
+	midk = []
+	for jj in range(len(acc)):
+		ii = acc[jj]
+		#Get selection mask for clustered voxels of compoent i with acc_Bn > med_Bn
+		sam_acc_Bn_selmask = np.array(tsoc_acc_Bn[:,jj] > med_acc_Bn,dtype=np.int)+np.array(sel_maps[:,ii]==1,dtype=np.int)==2
+		#Get sam of F_R2[:,ii], then log10
+		sam_acc_Bn_FR2 = np.log10(F_R2_maps[:,ii][sam_acc_Bn_selmask])
+		#Do 2-sample T-test
+		tt = stats.ttest_ind(sam_acc_Bn_FR2,pop_acc_Bn_FR2,equal_var=False)
+		#Report
+		if acc_PSCp98[jj] > p75_acc_PSCp98 and tt[0]<0: 
+			midk.append(ii)
+		#print ii, acc_PSCp98[jj], tt
 	
-	#Check for outlier variance explained
-	varex_sam = varex[(Kappas/Rhos)[acc]>3]
-	varex_lim = varex_sam.mean()+3*varex_sam.std()
-
-	midk = sorted(set(list(acc[np.prod([np.log(Kappas[acc])/2<1.95,tail_psc_Z>tail_psc_Z_max],0)==1]) + \
-		list(acc[np.prod([Kappas[acc]<Kelbow,psc_Z>10],0)==1])+list(acc[andb([(Kappas/Rhos)[acc]<3,varex[acc]>varex_lim])==2])))
-	rej = sorted(list(set(range(nc))-set(acc)))
-	acc = sorted(list(set(acc)-set(midk)))
-
-	#import ipdb
-	#ipdb.set_trace()
+	rej = sorted(set(range(nc))-set(acc))
+	acc = sorted(set(acc)-set(midk))
+	midk = sorted(midk)
 
 	return acc,rej,midk
+
 
 def selcomps(comptable):
 	fmin,fmid,fmax = getfbounds(ne)
