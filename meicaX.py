@@ -109,22 +109,22 @@ def dep_check():
 parser=OptionParser()
 parser.add_option('-e',"",dest='tes',help="ex: -e 14.5,38.5,62.5  Echo times (in ms)",default='')
 parser.add_option('-d',"",dest='dsinputs',help="ex: -d \"PREFIX[2,1,3]ETC.nii.gz\"  TE index of base is first. Note quotes.",default='')
-parser.add_option('-f',"",dest='FWHM',help="ex: -f 3mm  Target dataset smoothness (3dBlurToFWHM). Default to 0mm. ",default='0mm')
 parser.add_option('-a',"",dest='anat',help="ex: -a mprage.nii.gz  Anatomical dataset (optional)",default='')
+parser.add_option('-f',"",dest='FWHM',help="ex: -f 3mm  Target dataset smoothness (3dBlurToFWHM). Default to 0mm. ",default='0mm')
 parser.add_option('-b',"",dest='basetime',help="ex: -b 10  Time to steady-state equilibration in seconds. Default 0. ",default=0)
 extopts=OptionGroup(parser,"Extended preprocessing options")
-extopts.add_option('',"--t2salign",action="store_true",dest='t2salign',help="T2* weighted affine anatomical coregistration",default=False)
+extopts.add_option('',"--tlrc",dest='tlrc',help="Affine coregistration to Talairach space, specify base, ex: --tlrc MNI_caez_N27+tlrc",default=False)
+extopts.add_option('',"--fres",dest='fres',help="Specify functional voxel dim. in mm (iso.) for resampling during preprocessing. Default none. ex: --fres=2.33", default=False)
+extopts.add_option('',"--qwarp",dest='qwarp',action='store_true',help="Nonlinear coregistration after affine (3dQWarp) to --tlrc dataset",default=False)
 extopts.add_option('',"--no_skullstrip",action="store_true",dest='no_skullstrip',help="Anatomical is already skullstripped (if -a provided)",default=False)
-extopts.add_option('',"--maskpeels",dest='maskpeels',help="Functional masking factor, increase for more aggressive masking, default 3",default=3)
-extopts.add_option('',"--tlrc",dest='tlrc',help="Affine coregistration to Talairach space, specify base, ex: --tlrc TT_N27+tlrc",default=False)
-extopts.add_option('',"--qwarp",dest='qwarp',action='store_true',help="Nonlinear coregistration after affine (3dQWarp) to --tlrc base, recommended: --tlrc MNI_caez_N27+tlrc",default=False)
-extopts.add_option('',"--qwfres",dest='qwfres',help="Nonlinear functional warp voxel dimension (isotropic) in mm., ex: -qwfres=2", default=False)
+extopts.add_option('',"--no_t2salign",action="store_false",dest='t2salign',help="Don't use T2* weighted affine anatomical coregistration",default=True)
+#extopts.add_option('',"--maskpeels",dest='maskpeels',help="Functional masking factor, increase for more aggressive masking, default 3",default=3)
 extopts.add_option('',"--align_args",dest='align_args',help="Additional arguments for 3dAllineate EPI-anatomical alignment",default='')
 extopts.add_option('',"--align_base",dest='align_base',help="Explicitly specify base dataset for volume registration",default='')
 extopts.add_option('',"--TR",dest='TR',help="The TR. Default read from input datasets",default='')
 extopts.add_option('',"--tpattern",dest='tpattern',help="Slice timing (i.e. alt+z, see 3dTshift -help). Default from header. (N.B. This is important!)",default='')
 extopts.add_option('',"--highpass",dest='highpass',help="Highpass filter in Hz (recommended default 0.0)",default=0.0)
-extopts.add_option('',"--detrend",dest='detrend',help="Polynomial detrend order (i.e. an integer, see 3dDetrend -help)")
+extopts.add_option('',"--detrend",dest='detrend',help="Polynomial detrend order (i.e. an integer, rec. none, see 3dDetrend -help)",)
 parser.add_option_group(extopts)
 icaopts=OptionGroup(parser,"Extended ICA options (see tedana.py -h")
 icaopts.add_option('',"--daw",dest='daw',help="Dimensionality increase weight. Default 10. For low tSNR data, use -1",default='10')
@@ -209,6 +209,11 @@ else:
 timetoclip=float(options.basetime)
 basebrik=int(round(timetoclip/tr))
 
+#Misc. command parsing
+if options.qwarp and (options.anat=='' or not options.tlrc):
+	print "*+ Can't specify Qwarp nonlinear coregistratoin without anatoical and TLRC template!"
+	sys.exit()
+
 #Parse alignment options
 align_base = basebrik
 align_interp='cubic'
@@ -228,8 +233,12 @@ if oblique_epi_read or oblique_anat_read:
 	oblique_mode = True
 	sl.append("echo Oblique data detected.")
 else: oblique_mode = False
-if options.qwfres: qwfres="-dxyz %s" % options.qwfres
-else: qwfres=""
+if options.fres:
+	if options.qwarp: qwfres="-dxyz %s" % options.fres
+	else: alfres = "-mast_dxyz %s" % options.fres
+else: 
+	qwfres=""
+	alfres=""
 
 #Prepare script and enter MEICA directory
 sl.append('export OMP_NUM_THREADS=%s' % (options.cpus))
@@ -348,7 +357,11 @@ if options.anat!='':
 	abmprage = nsmprage
 	if options.tlrc:
 		sl.append("afnibinloc=`which 3dSkullStrip`")
-		sl.append("templateloc=${afnibinloc%/*}")
+		if '/' in options.tlrc: 
+			sl.append("ll=\"%s\"; templateloc=${ll%%/*}/" % options.tlrc)
+			options.tlrc=options.tlrc.split('/')[-1]
+  		else:
+			sl.append("templateloc=${afnibinloc%/*}")
 		atnsmprage = "%s_at.nii.gz" % (dsprefix(nsmprage))
 		if not dssuffix(nsmprage).__contains__('nii'): sl.append("3dcalc -float -a %s -expr 'a' -prefix %s.nii.gz" % (nsmprage,dsprefix(nsmprage)))
 		#If can't find tlrc'd anatomical, compute it and copy back to source directory
@@ -403,22 +416,27 @@ for echo_ii in range(len(datasets)):
 	sl.append("3drefit -deoblique -TR %s %s_ts+orig" % (options.TR,dsin))
 
 	if echo_ii == 0: 
-		if zeropad_opts!="" : sl.append("3dZeropad %s -prefix _eBvrmask.nii.gz %s_ts+orig[%s]" % (zeropad_opts,dsin,basebrik))
+		if options.anat: almaster="-master %s" % abmprage
+		else: almaster=""
+		sl.append("3dZeropad %s -prefix _eBvrmask.nii.gz %s_ts+orig[%s]" % (zeropad_opts,dsin,basebrik))
+		sl.append("voxsize=`3dinfo -ad3 _eBvrmask.nii.gz`")
 		#Create base mask
-		if options.qwarp: sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D{%s}' -master %s %s -source _eBvrmask.nii.gz -interp %s -prefix ./_eBvrmask.nii.gz " % \
-			(startdir,dsprefix(nlatnsmprage),prefix,basebrik,abmprage,qwfres,align_interp))
-		else: sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base _eBvrmask.nii.gz -input _eBvrmask.nii.gz -prefix ./_eBvrmask.nii.gz" % \
-			(align_interp,align_interp,prefix,basebrik))
-		if options.qwarp: 
-			sl.append("3dUnifize -prefix _eBvrmask.nii.gz -overwrite _eBvrmask.nii.gz")
-			sl.append("3dSkullStrip -input _eBvrmask.nii.gz -prefix eBvrmask.nii.gz -no_avoid_eyes")
-			sl.append("3dcalc -a eBvrmask.nii.gz -expr 'step(a)' -prefix eBvrmask.nii.gz -overwrite")
-		else: sl.append("3dAutomask -dilate 1 -peels %s -overwrite -prefix eBvrmask%s _eBvrmask%s" % (str(options.maskpeels),osf,osf))
+		if options.qwarp: sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D{%s}' %s %s -source _eBvrmask.nii.gz -interp %s -prefix ./_eBvrmask.nii.gz " % \
+			(startdir,dsprefix(nlatnsmprage),prefix,basebrik,almaster,qwfres,align_interp))
+		else: 
+			sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base _eBvrmask.nii.gz -input _eBvrmask.nii.gz -prefix ./_eBvrmask.nii.gz %s %s" % \
+			(align_interp,align_interp,prefix,basebrik,almaster,alfres))
+		#Unifize then skull-strip EPI, Automask'ing is now deprecated
+		#if options.qwarp: 
+		sl.append("3dUnifize -prefix _eBvrmask.nii.gz -overwrite _eBvrmask.nii.gz")
+		sl.append("3dSkullStrip -input _eBvrmask.nii.gz -prefix eBvrmask.nii.gz -no_avoid_eyes")
+		sl.append("3dcalc -a eBvrmask.nii.gz -expr 'step(a)' -prefix eBvrmask.nii.gz -overwrite")
+		#else: sl.append("3dAutomask -dilate 1 -peels %s -overwrite -prefix eBvrmask%s _eBvrmask%s" % (str(options.maskpeels),osf,osf))
 		#Do grand mean scaling
 		sl.append("3dBrickStat -mask eBvrmask.nii.gz -percentile 50 1 50  _eBvrmask.nii.gz > gms.1D" )
-		if options.anat!='' and not options.qwarp:
-			sl.append("3dresample -overwrite -rmode NN -dxyz `3dinfo -ad3 eBvrmask.nii.gz` -inset eBvrmask.nii.gz -prefix eBvrmask.nii.gz -master %s" % (abmprage))
-		else:
+		if options.anat!='' and not options.fres:
+			sl.append("3dresample -overwrite -rmode NN -dxyz ${voxsize} -inset eBvrmask.nii.gz -prefix eBvrmask.nii.gz -master %s" % (abmprage))
+		elif options.anat=='':
 			sl.append("3dAutobox -overwrite -prefix eBvrmask%s eBvrmask%s" % (osf,osf) )
 		sl.append("3dcalc -float -a eBvrmask.nii.gz -expr 'notzero(a)' -overwrite -prefix eBvrmask.nii.gz")
 	
@@ -490,13 +508,13 @@ sl.append("%sgzip -f %s/%s_medn.nii %s/%s_mefc.nii %s/%s_tsoc.nii" % (tedflag,st
 """
 
 sl.append("%scp TED/ts_OC.nii TED/%s_tsoc.nii" % (tedflag,options.prefix))
-sl.append("%scp TED/hik_ts_OC.nii TED/%s_medn.nii" % (tedflag,options.prefix))
+sl.append("%scp TED/dn_ts_OC.nii TED/%s_medn.nii" % (tedflag,options.prefix))
 sl.append("%scp TED/betas_hik_OC.nii TED/%s_mefc.nii" % (tedflag,options.prefix))
 sl.append("%scp TED/comp_table.txt %s/%s_ctab.txt" % (tedflag,startdir,options.prefix))
 hist_line = "%s" % (" ".join(sys.argv).replace('"',r"\""))
-note_line = "Denoised timeseries, produced by ME-ICA v2.5"
+note_line = "Denoised timeseries (including thermal noise), produced by ME-ICA v2.5"
 sl.append("%s3dNotes -h \'%s (%s)\' TED/%s_medn.nii" % (tedflag,hist_line,note_line,options.prefix))
-note_line = "Denoised ICA coeff. set for seed-based FC analysis, produced by ME-ICA v2.5"
+note_line = "Denoised ICA coeff. set for ME-ICR seed-based FC analysis, produced by ME-ICA v2.5"
 sl.append("%s3dNotes -h \'%s (%s)\' TED/%s_mefc.nii" % (tedflag,hist_line,note_line,options.prefix))
 note_line = "T2* weighted average of ME time series, produced by ME-ICA v2.5"
 sl.append("%s3dNotes -h \'%s (%s)\' TED/%s_tsoc.nii" % (tedflag,hist_line,note_line,options.prefix))
