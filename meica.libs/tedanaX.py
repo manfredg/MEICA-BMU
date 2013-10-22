@@ -772,13 +772,10 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 	#Get pop of F_R2[:,acc] and F_S0[:,acc], then log10
 	pop_acc_Bn_FR2 = np.log10(F_R2_maps[:,acc][pop_acc_Bn_selmask])
 	#pop_acc_Bn_FS0 = np.log10(F_S0_maps[:,acc][pop_acc_Bn_selmask])
-	#Get list of component percent signal changes at 95% percentile for accepted comps (thinking ~L0 i.e. min/max)
+	#Get list of component percent signal changes at 98% percentile for accepted comps (thinking ~L0 i.e. min/max)
 	acc_PSCp98 = np.array([scoreatpercentile(PSC[:,ii][sel_maps[:,ii]==1],98) for ii in acc])
-	#Get 50th and 90th percentiles of p98's as failure requirements for FR2 and FS0 tests
-	p50_acc_PSCp98 = scoreatpercentile(acc_PSCp98,50)
-	p90_acc_PSCp98 = scoreatpercentile(acc_PSCp98,90)
 
-	midk = []
+	tt_table = []
 	for jj in range(len(acc)):
 		ii = acc[jj]
 		#Get selection mask for clustered voxels of compoent i with acc_Bn > med_Bn
@@ -791,12 +788,28 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 		tt_FR2 = stats.ttest_ind(sam_acc_Bn_FR2,pop_acc_Bn_FR2,equal_var=False)
 		#tt_FS0 = stats.ttest_ind(sam_acc_Bn_FS0,pop_acc_Bn_FS0,equal_var=False)
 		#Add any comp to midk that has high PSC, significantly low FR2, and significantly abberant FS0
-		if acc_PSCp98[jj] > p50_acc_PSCp98 and tt_FR2[0]<0 and tt_FR2[1]<1e-5: 
+		tt_table.append([acc_PSCp98[jj],tt_FR2[0],tt_FR2[1]])
+
+	tt_table = np.array(tt_table)
+
+	"""Decide midk set"""
+	#Get 50th and 90th percentiles of p98's as failure requirements for FR2 and FS0 tests
+	p50_acc_PSCp98 = scoreatpercentile(tt_table[tt_table[:,1]>0,0],50)
+	p90_acc_PSCp98 = scoreatpercentile(tt_table[tt_table[:,1]>0,0],90)
+	midP_pos = np.median(tt_table[tt_table[:,1]>0,2])
+
+	midk = []
+	for jj in range(len(acc)):
+		ii = acc[jj]
+		tt_FR2=tt_table[jj][1:]
+		if acc_PSCp98[jj] > p50_acc_PSCp98*4 and tt_FR2[0]<0 and tt_FR2[1]<1e-5: 
 			midk.append(ii)
-		elif acc_PSCp98[jj] > p90_acc_PSCp98 and tt_FR2[0]<0:
+		elif acc_PSCp98[jj] > p50_acc_PSCp98*2 and tt_FR2[0]<0 and tt_FR2[1]<midP_pos:
+			midk.append(ii)
+		elif acc_PSCp98[jj] > p50_acc_PSCp98 and tt_FR2[0]<0 and tt_FR2[1]==0.:
 			midk.append(ii)
 		print ii, acc_PSCp98[jj], tt_FR2
-	
+
 	rej = sorted(set(range(nc))-set(acc))
 	acc = sorted(set(acc)-set(midk))
 	midk = sorted(midk)
