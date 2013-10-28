@@ -26,7 +26,7 @@ import numpy as np
 import nibabel as nib
 from sys import stdout
 #import pdb
-#import ipdb
+import ipdb
 import scipy.stats as stats
 
 F_MAX=500
@@ -196,12 +196,13 @@ def t2smap(catd,mask,tes):
 	t2s = 1/beta[1,:].transpose()
 	s0  = np.exp(beta[0,:]).transpose()
 
-	out = unmask(t2s,mask),unmask(s0,mask)
+	#Goodness of fit
+	alpha = (np.abs(B)**2).sum(axis=0)
+	t2s_fit = blah = (alpha - res)/(2*res)
+	
+	out = unmask(t2s,mask),unmask(s0,mask),unmask(t2s_fit,mask)
 
 	return out
-
-	head.set_data_shape((nx,ny,nz,2))
-	vecwrite(out,'t2s.nii',aff)
 
 def get_coeffs(data,mask,X,add_const=False):
 	"""
@@ -680,6 +681,8 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 	Nm = mask.sum()
 	mu = catd.mean(axis=-1)
 	tes = np.reshape(tes,(Ne,1))
+	fmin,fmid,fmax = getfbounds(ne)
+	t2s_fm = np.array(fmask(t2s_fit,mask)>fmax*2,dtype=np.int)
 
 	#Mask arrays
 	mumask   = fmask(mu,mask)
@@ -701,6 +704,8 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 	F_R2_maps = np.zeros([Nm,nc])
 	F_S0_maps = np.zeros([Nm,nc])
 	sel_maps = np.zeros([Nm,nc])
+	tt_table = np.zeros([nc,5])
+
 
 	for i in range(nc):
 
@@ -741,15 +746,37 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 		csize = np.max([int(Nm*0.001),20]) #To Do: Make size selection more principled
 		os.system('3dmerge -overwrite -dxyz=1 -1clust 1 %i -1dindex 3 -1tindex 3 -1thresh 1.95 -prefix cl_%s %s' % (csize,name,name))
 		sel = fmask(nib.load('cl_%s' % name).get_data(),mask)!=0
+		sel = np.array(sel,dtype=np.int)*t2s_fm
 		sel_maps[:,i] = sel
 
+		#Compute Z-maps for gain of F_R2 signal (clustered) over F_R2 noise (unclustered) - per component
+		comp_noise_sel = andb([wtsZ>1.95,sel_maps[:,i]==0])==2
+		noise_FR2_Z = np.log10(np.unique(F_R2_maps[comp_noise_sel,i]))
+		signal_FR2_Z  = np.log10(np.unique(F_R2_maps[sel_maps[:,i]==1,i]))
+		tt_table[i,:2] = stats.ttest_ind(noise_FR2_Z,signal_FR2_Z,equal_var=False)
+
+		"""
+		#Compute T2* bias
+		med_t2s = np.median(t2sv)
+		A = np.unique(t2sv[sel_maps[:,i]==1])
+		A = A[andb([A>np.min(tes)/2,A<np.max(tes)*2])==2]
+		#B = np.unique(t2sv[comp_noise_sel])
+		B = np.unique(t2sv)
+		B = B[andb([B>np.min(tes)/2,B<np.max(tes)*2])==2]
+		stats.ttest_ind(np.unique(A),np.unique(B),equal_var=True)
+		"""
+
 		#Compute Z-value for gain of R2 over S0
-		s0test = np.log(F_S0[sel])/2
-		r2test = np.log(F_R2[sel])/2
+		s0test = np.log(F_S0[sel==1])/2
+		r2test = np.log(F_R2[sel==1])/2
 		r2Vs0 = stats.ttest_ind(r2test,s0test,equal_var=False)
 		Zu = stats.norm.ppf(1-r2Vs0[1]/2)
 		if np.isinf(Zu): Zu=100
 		Zvals[i] = Zu*r2Vs0[0]/np.abs(r2Vs0[0])
+
+		#if i==2:
+		#	import ipdb
+		#	ipdb.set_trace()
 
 		#Compute Kappa and Rho
 		F_S0[F_S0>F_MAX] = F_MAX
@@ -757,12 +784,12 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 		Kappas[i] = np.average(F_R2,weights=wtsZ**2.)
 		Rhos[i] = np.average(F_S0,weights=wtsZ**2.)
 
-	fmin,fmid,fmax = getfbounds(tes.shape[0])
-
 	#Accept components with K higher than elbow AND/OR with F_R2 definitely greater than F_S0 AND Rhos<fmid AND Kappa>fmin
 	acc = np.arange(nc)[andb([Zvals>3.2,andb([Kappas>Kappas[getelbow(Kappas)],Zvals>50])>=1,Rhos<fmid,Kappas>fmin])==4] #p<0.001
 
 	"""Population F_R2 for normalized Betas in accepted and clustered comps, greater than respective median"""
+	#L2 normalize betas of all comps in time direction, then take abs
+	tsoc_Bn = np.abs((tsoc_B.T/np.sqrt((tsoc_B**2).sum(1))).T)
 	#L2 normalize betas of accepted comps in time direction, then take abs
 	tsoc_acc_Bn = np.abs((tsoc_B[:,acc].T/np.sqrt((tsoc_B[:,acc]**2).sum(1))).T)
 	#Find median Bn of voxels that clustered previously in accepted components
@@ -770,12 +797,13 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 	#Get selection mask for clustered voxels of accepted compoennts with Bn > med_Bn
 	pop_acc_Bn_selmask = np.array(tsoc_acc_Bn > med_acc_Bn,dtype=np.int)+np.array(sel_maps[:,acc]==1,dtype=np.int)==2
 	#Get pop of F_R2[:,acc] and F_S0[:,acc], then log10
-	pop_acc_Bn_FR2 = np.log10(F_R2_maps[:,acc][pop_acc_Bn_selmask])
+	pop_acc_Bn_FR2 = np.unique(np.log10(F_R2_maps[:,acc][pop_acc_Bn_selmask]))
 	#pop_acc_Bn_FS0 = np.log10(F_S0_maps[:,acc][pop_acc_Bn_selmask])
 	#Get list of component percent signal changes at 98% percentile for accepted comps (thinking ~L0 i.e. min/max)
-	acc_PSCp98 = np.array([scoreatpercentile(PSC[:,ii][sel_maps[:,ii]==1],98) for ii in acc])
+	PSCp98 = [scoreatpercentile(PSC[:,ii][sel_maps[:,ii]==1],98) for ii in range(nc) if np.array(sel_maps[:,ii]==1,dtype=np.int).sum()!=0]
 
-	tt_table = []
+	"""Sample F_R2 tests versus population"""
+	"""
 	for jj in range(len(acc)):
 		ii = acc[jj]
 		#Get selection mask for clustered voxels of compoent i with acc_Bn > med_Bn
@@ -788,35 +816,38 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 		tt_FR2 = stats.ttest_ind(sam_acc_Bn_FR2,pop_acc_Bn_FR2,equal_var=False)
 		#tt_FS0 = stats.ttest_ind(sam_acc_Bn_FS0,pop_acc_Bn_FS0,equal_var=False)
 		#Add any comp to midk that has high PSC, significantly low FR2, and significantly abberant FS0
-		tt_table.append([acc_PSCp98[jj],tt_FR2[0],tt_FR2[1]])
+		tt_table[ii,2:4] = tt_FR2
+		tt_table[ii,4] = acc_PSCp98[jj]
+	"""
 
-	tt_table = np.array(tt_table)
+	for ii in range(nc):
+		#Get selection mask for clustered voxels of compoent i with acc_Bn > med_Bn
+		sam_Bn_selmask = np.array(tsoc_Bn[:,ii] > med_acc_Bn,dtype=np.int)+np.array(sel_maps[:,ii]==1,dtype=np.int)==2
+		#Get sam of F_R2[:,ii], then log10
+		sam_Bn_FR2 = np.unique(np.log10(F_R2_maps[:,ii][sam_Bn_selmask]))
+		#Get sam of F_S0[:,ii], then log10
+		#sam_acc_Bn_FS0 = np.log10(F_S0_maps[:,ii][sam_acc_Bn_selmask])
+		#Do 2-sample T-test for FR2 and FS0
+		tt_FR2 = stats.ttest_ind(sam_Bn_FR2,pop_acc_Bn_FR2,equal_var=False)
+		#tt_FS0 = stats.ttest_ind(sam_acc_Bn_FS0,pop_acc_Bn_FS0,equal_var=False)
+		#Add any comp to midk that has high PSC, significantly low FR2, and significantly abberant FS0
+		tt_table[ii,2:4] = tt_FR2
+		#tt_table[ii,4] = acc_PSCp98[]
 
-	"""Decide midk set"""
-	#Get 50th and 90th percentiles of p98's as failure requirements for FR2 and FS0 tests
-	p50_acc_PSCp98 = scoreatpercentile(tt_table[tt_table[:,1]>0,0],50)
-	p90_acc_PSCp98 = scoreatpercentile(tt_table[tt_table[:,1]>0,0],90)
-	midP_pos = np.median(tt_table[tt_table[:,1]>0,2])
+	import ipdb
+	ipdb.set_trace()
 
-	midk = []
-	for jj in range(len(acc)):
-		ii = acc[jj]
-		tt_FR2=tt_table[jj][1:]
-		if acc_PSCp98[jj] > p50_acc_PSCp98*4 and tt_FR2[0]<0 and tt_FR2[1]<1e-5: 
-			midk.append(ii)
-		elif acc_PSCp98[jj] > p50_acc_PSCp98*2 and tt_FR2[0]<0 and tt_FR2[1]<midP_pos:
-			midk.append(ii)
-		elif acc_PSCp98[jj] > p50_acc_PSCp98 and tt_FR2[0]<0 and tt_FR2[1]==0.:
-			midk.append(ii)
-		print ii, acc_PSCp98[jj], tt_FR2
+	"""APPROACH BASED ON REJECTED COMPS"""
+	rej = list(set(np.arange(nc))-set(acc))
+	#sample_gain_thresh = np.median(tt_table[rej,2][~np.isnan(tt_table[rej,2])])
+	sample_gain_thresh = scoreatpercentile(tt_table[rej,0][~np.isnan(tt_table[rej,0])],75)
+	cluster_gain_thresh = scoreatpercentile(tt_table[rej,0][~np.isnan(tt_table[rej,0])],5)
+	#Components that need to fail only one test to be excluded as midk
+	varex_sel =  andb([andb([Kappas[acc]<fmid,np.isnan(tt_table[acc,0])])==2,varex[acc]>scoreatpercentile(varex[acc][Kappas[acc]>fmid],33)])>0
+	midk = acc[andb([tt_table[acc,2]<0,andb([varex_sel,tt_table[acc,0]>cluster_gain_thresh,tt_table[acc,2]<sample_gain_thresh])>1])==2]
 
-	rej = sorted(set(range(nc))-set(acc))
 	acc = sorted(set(acc)-set(midk))
-	midk = sorted(midk)
-
-	#import ipdb
-	#ipdb.set_trace()
-
+	midk = list(midk)
 	return acc,rej,midk
 
 
@@ -1341,12 +1372,13 @@ if __name__=='__main__':
 	mask  = makemask(catd)
 
 	print "++ Computing T2* map"
-	t2s,s0   = t2smap(catd,mask,tes)
+	t2s,s0,t2s_fit   = t2smap(catd,mask,tes)
 	#Condition values
 	cap_t2s = scoreatpercentile(t2s.flatten(),99.5)
 	t2s[t2s>cap_t2s*10]=cap_t2s 
 	niwrite(s0,aff,'s0v.nii')
 	niwrite(t2s,aff,'t2sv.nii')
+	niwrite(t2s_fit,aff,'t2sF.nii')
 	
 	if options.mixm == None:
 		print "++ Doing ME-PCA and ME-ICA with MDP"
