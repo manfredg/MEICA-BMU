@@ -682,7 +682,7 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 	mu = catd.mean(axis=-1)
 	tes = np.reshape(tes,(Ne,1))
 	fmin,fmid,fmax = getfbounds(ne)
-	t2s_fm = np.array(fmask(t2s_fit,mask)>fmax*2,dtype=np.int)
+	t2s_fm = np.array(fmask(t2s_fit,mask)>1000,dtype=np.int)
 
 	#Mask arrays
 	mumask   = fmask(mu,mask)
@@ -753,7 +753,7 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 		comp_noise_sel = andb([wtsZ>1.95,sel_maps[:,i]==0])==2
 		noise_FR2_Z = np.log10(np.unique(F_R2_maps[comp_noise_sel,i]))
 		signal_FR2_Z  = np.log10(np.unique(F_R2_maps[sel_maps[:,i]==1,i]))
-		tt_table[i,:2] = stats.ttest_ind(noise_FR2_Z,signal_FR2_Z,equal_var=False)
+		tt_table[i,:2] = stats.ttest_ind(signal_FR2_Z,noise_FR2_Z,equal_var=False)
 
 		"""
 		#Compute T2* bias
@@ -800,7 +800,7 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 	pop_acc_Bn_FR2 = np.unique(np.log10(F_R2_maps[:,acc][pop_acc_Bn_selmask]))
 	#pop_acc_Bn_FS0 = np.log10(F_S0_maps[:,acc][pop_acc_Bn_selmask])
 	#Get list of component percent signal changes at 98% percentile for accepted comps (thinking ~L0 i.e. min/max)
-	PSCp98 = [scoreatpercentile(PSC[:,ii][sel_maps[:,ii]==1],98) for ii in range(nc) if np.array(sel_maps[:,ii]==1,dtype=np.int).sum()!=0]
+	PSCp98 = np.array([scoreatpercentile(PSC[:,ii][sel_maps[:,ii]==1],98) if np.array(sel_maps[:,ii]==1,dtype=np.int).sum()!=0 else 0 for ii in range(nc)])
 
 	"""Sample F_R2 tests versus population"""
 	"""
@@ -834,20 +834,18 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 		tt_table[ii,2:4] = tt_FR2
 		#tt_table[ii,4] = acc_PSCp98[]
 
-	import ipdb
-	ipdb.set_trace()
-
 	"""APPROACH BASED ON REJECTED COMPS"""
 	rej = list(set(np.arange(nc))-set(acc))
-	#sample_gain_thresh = np.median(tt_table[rej,2][~np.isnan(tt_table[rej,2])])
-	sample_gain_thresh = scoreatpercentile(tt_table[rej,0][~np.isnan(tt_table[rej,0])],75)
-	cluster_gain_thresh = scoreatpercentile(tt_table[rej,0][~np.isnan(tt_table[rej,0])],5)
-	#Components that need to fail only one test to be excluded as midk
-	varex_sel =  andb([andb([Kappas[acc]<fmid,np.isnan(tt_table[acc,0])])==2,varex[acc]>scoreatpercentile(varex[acc][Kappas[acc]>fmid],33)])>0
-	midk = acc[andb([tt_table[acc,2]<0,andb([varex_sel,tt_table[acc,0]>cluster_gain_thresh,tt_table[acc,2]<sample_gain_thresh])>1])==2]
+	sample_gain_thresh = scoreatpercentile(tt_table[rej,0][~np.isnan(tt_table[rej,0])],50)
+	cluster_gain_thresh = scoreatpercentile(tt_table[rej,0][~np.isnan(tt_table[rej,0])],95)
+	amp_sel = andb([varex[acc]>scoreatpercentile(varex[acc],33),PSCp98[acc]>scoreatpercentile(PSCp98[acc],50)])==2
+	amp_sel = andb([np.isnan(tt_table[acc,0]),amp_sel])>0
+	midk = acc[andb([amp_sel,tt_table[acc,0]<cluster_gain_thresh,tt_table[acc,2]<sample_gain_thresh])>1]
+
+	#import ipdb
+	#ipdb.set_trace()
 
 	acc = sorted(set(acc)-set(midk))
-	midk = list(midk)
 	return acc,rej,midk
 
 
