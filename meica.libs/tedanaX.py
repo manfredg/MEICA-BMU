@@ -26,7 +26,7 @@ import numpy as np
 import nibabel as nib
 from sys import stdout
 #import pdb
-import ipdb
+#import ipdb
 import scipy.stats as stats
 
 F_MAX=500
@@ -682,7 +682,7 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 	mu = catd.mean(axis=-1)
 	tes = np.reshape(tes,(Ne,1))
 	fmin,fmid,fmax = getfbounds(ne)
-	t2s_fm = np.array(fmask(t2s_fit,mask)>1000,dtype=np.int)
+	t2s_fm = np.array(fmask(t2s_fit,mask)>fmax*2,dtype=np.int)
 
 	#Mask arrays
 	mumask   = fmask(mu,mask)
@@ -705,7 +705,6 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 	F_S0_maps = np.zeros([Nm,nc])
 	sel_maps = np.zeros([Nm,nc])
 	tt_table = np.zeros([nc,5])
-
 
 	for i in range(nc):
 
@@ -802,24 +801,6 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 	#Get list of component percent signal changes at 98% percentile for accepted comps (thinking ~L0 i.e. min/max)
 	PSCp98 = np.array([scoreatpercentile(PSC[:,ii][sel_maps[:,ii]==1],98) if np.array(sel_maps[:,ii]==1,dtype=np.int).sum()!=0 else 0 for ii in range(nc)])
 
-	"""Sample F_R2 tests versus population"""
-	"""
-	for jj in range(len(acc)):
-		ii = acc[jj]
-		#Get selection mask for clustered voxels of compoent i with acc_Bn > med_Bn
-		sam_acc_Bn_selmask = np.array(tsoc_acc_Bn[:,jj] > med_acc_Bn,dtype=np.int)+np.array(sel_maps[:,ii]==1,dtype=np.int)==2
-		#Get sam of F_R2[:,ii], then log10
-		sam_acc_Bn_FR2 = np.log10(F_R2_maps[:,ii][sam_acc_Bn_selmask])
-		#Get sam of F_S0[:,ii], then log10
-		#sam_acc_Bn_FS0 = np.log10(F_S0_maps[:,ii][sam_acc_Bn_selmask])
-		#Do 2-sample T-test for FR2 and FS0
-		tt_FR2 = stats.ttest_ind(sam_acc_Bn_FR2,pop_acc_Bn_FR2,equal_var=False)
-		#tt_FS0 = stats.ttest_ind(sam_acc_Bn_FS0,pop_acc_Bn_FS0,equal_var=False)
-		#Add any comp to midk that has high PSC, significantly low FR2, and significantly abberant FS0
-		tt_table[ii,2:4] = tt_FR2
-		tt_table[ii,4] = acc_PSCp98[jj]
-	"""
-
 	for ii in range(nc):
 		#Get selection mask for clustered voxels of compoent i with acc_Bn > med_Bn
 		sam_Bn_selmask = np.array(tsoc_Bn[:,ii] > med_acc_Bn,dtype=np.int)+np.array(sel_maps[:,ii]==1,dtype=np.int)==2
@@ -834,16 +815,47 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None):
 		tt_table[ii,2:4] = tt_FR2
 		#tt_table[ii,4] = acc_PSCp98[]
 
-	"""APPROACH BASED ON REJECTED COMPS"""
+	#Components that don't cluster aren't allowed in acc range
 	rej = list(set(np.arange(nc))-set(acc))
-	sample_gain_thresh = scoreatpercentile(tt_table[rej,0][~np.isnan(tt_table[rej,0])],50)
-	cluster_gain_thresh = scoreatpercentile(tt_table[rej,0][~np.isnan(tt_table[rej,0])],95)
-	amp_sel = andb([varex[acc]>scoreatpercentile(varex[acc],33),PSCp98[acc]>scoreatpercentile(PSCp98[acc],50)])==2
-	amp_sel = andb([np.isnan(tt_table[acc,0]),amp_sel])>0
-	midk = acc[andb([amp_sel,tt_table[acc,0]<cluster_gain_thresh,tt_table[acc,2]<sample_gain_thresh])>1]
+	acc2_cand = acc[~np.isnan(tt_table[acc,0])]
+	acc2 = []
+	varex_25 = scoreatpercentile(varex[acc2_cand],25)
+	PSCp98_75 = scoreatpercentile(PSCp98[acc2_cand],75)
+	PSCp98_50 = scoreatpercentile(PSCp98[acc2_cand],50)
+	cluster_gain_null = tt_table[rej,0][~np.isnan(tt_table[rej,0])]
+	cluster_gain_95 = scoreatpercentile(cluster_gain_null,95)
+	cluster_gain_75 = scoreatpercentile(cluster_gain_null,75)
+	cluster_gain_50 = scoreatpercentile(cluster_gain_null,50)
+	sample_gain_null = tt_table[rej,2][~np.isnan(tt_table[rej,2])]
+	sample_gain_75 = scoreatpercentile(sample_gain_null,75)
+	sample_gain_50 = scoreatpercentile(sample_gain_null,50)
+
+	for ii in acc2_cand:
+		if PSCp98[ii]>PSCp98_75 and tt_table[ii,0]>cluster_gain_95 and tt_table[ii,2]>=sample_gain_75: acc2.append(ii)
+		elif (PSCp98[ii]>PSCp98_50 and PSCp98[ii]<=PSCp98_75) and tt_table[ii,0]>=cluster_gain_95 and tt_table[ii,2]>=sample_gain_50: acc2.append(ii)
+		elif PSCp98[ii]<=PSCp98_50 and (tt_table[ii,0]>=cluster_gain_95 or tt_table[ii,0]>=sample_gain_50): acc2.append(ii)
+		elif np.isnan(tt_table[ii,2]) and varex[ii]<varex_25 and tt_table[ii,0] > cluster_gain_95: acc2.append(ii)
+
+	midk = sorted(set(acc)-set(acc2))
+	acc = list(acc2)
+	rej = list(rej)
 
 	#import ipdb
 	#ipdb.set_trace()
+
+	return acc,rej,midk
+
+
+	"""APPROACH BASED ON REJECTED COMPS"""
+	rej = list(set(np.arange(nc))-set(acc))
+	sample_gain_thresh = scoreatpercentile(tt_table[rej,2][~np.isnan(tt_table[rej,2])],75)
+	cluster_gain_thresh = scoreatpercentile(tt_table[rej,0][~np.isnan(tt_table[rej,0])],95)
+	amp_sel = andb([varex[acc]>scoreatpercentile(varex[acc],33),PSCp98[acc]>scoreatpercentile(PSCp98[acc],50)])>0
+	amp_sel = andb([np.isnan(tt_table[acc,0]),amp_sel])>0
+	midk = acc[andb([amp_sel,tt_table[acc,0]<cluster_gain_thresh,tt_table[acc,2]<sample_gain_thresh])>1]
+
+	import ipdb
+	ipdb.set_trace()
 
 	acc = sorted(set(acc)-set(midk))
 	return acc,rej,midk
