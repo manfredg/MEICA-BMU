@@ -582,7 +582,7 @@ if __name__=='__main__':
 	if options.mixm == None:
 		print "++ Doing ME-PCA and ME-ICA with MDP"
 		import mdp
-		nc,dd = tedpca(options.ste,0)
+		nc,dd = tedpca(options.ste)
 		mmix_orig = tedica(dd,cost=options.initcost)
 		np.savetxt('__meica_mix.1D',mmix_orig)
 		seldict,comptable,betas,mmix = fitmodels_direct(catd,mmix_orig,mask,t2s,tes,options.fout,reindex=True)
