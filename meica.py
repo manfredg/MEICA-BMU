@@ -58,6 +58,7 @@ def dep_check():
 	print '++ Checking system for dependencies...'
 	fails=0
 	numpy_installed = 0
+	scipy_installed = 0
 	python_version_ok = 0
 	global grayweight_ok
 	grayweight_ok = 0
@@ -73,6 +74,12 @@ def dep_check():
 	except:
 		print "*+ Can't import Numpy! Please check Numpy installation for this Python version."
 		fails+=1
+	try:
+		import scipy
+		scipy_installed = 1
+	except:
+		print "*+ Can't import Scipy! Please check Scipy installation for this Python version."
+		fails+=1
 	if numpy_installed:
 		print " + Numpy version: %s" % (numpy.__version__)
 		if float('.'.join(numpy.__version__.split('.')[0:2]))<1.5:
@@ -82,6 +89,11 @@ def dep_check():
 		if nc.blas_opt_info == {}:
 			fails+=1
 			print "*+ Numpy is not linked to BLAS! Please check Numpy installation."
+	if scipy_installed:
+		print " + Scipy version: %s" % (scipy.__version__)
+		if float('.'.join(scipy.__version__.split('.')[0:2]))<0.11:
+			fails+=1
+			print "*+ Scipy version is too old! Please upgrade to Scipy >=0.11.x!"
 	afnicheck = commands.getstatusoutput("3dinfo")
 	afnisegcheck = commands.getstatusoutput("3dSeg -help")
 	if afnicheck[0]!=0:
@@ -100,14 +112,6 @@ def dep_check():
 	else:
 		print "*+ EXITING. Please see error messages."
 		sys.exit()
-
-def advfuncmask(anat,t2s,s0,oc):
-	logcomment("Do advanced functional masking based on T2*, S0, and anatomical",level=2)
-	sl.append("mkdir funcmask; cd funcmask")
-	sl.append("3dresample -rmode Li -master ../%s -inset ../%s -prefix ./anat_epi.nii.gz" % (t2s.anat))
-	#Combine to 'punch out' nasty areas
-	sl.append("3dcalc -a anat_epi.nii.gz -b %s -c `ls Segsy.t2s/Classes+*.HEAD` -d ../%s -expr 'step(b)*step(equals(c,2)+a)*d' -prefix ./_eBvrmask.nii.gz" % oc)
-	sl.append("cd ..")
 
 def getdsname(e_ii,prefixonly=False):
 	if shorthand_dsin: dsname = '%s%s%s%s' % (prefix,datasets[e_ii],trailing,isf)
@@ -138,7 +142,6 @@ extopts.add_option('',"--fres",dest='fres',help="Specify functional voxel dim. i
 extopts.add_option('',"--space",dest='space',help="Path to specific standard space template for affine anatomical normalization",default=False)
 extopts.add_option('',"--no_skullstrip",action="store_true",dest='no_skullstrip',help="Anatomical is already skullstripped (if -a provided)",default=False)
 extopts.add_option('',"--no_despike",action="store_true",dest='no_despike',help="Do not de-spike functional data. Default on is recommended.",default=False)
-extopts.add_option('',"--advmask",dest='advmask',action='store_true',help="Functional masking based on T2*, S0, and anatomical. Default off.",default=False)
 extopts.add_option('',"--smooth",dest='FWHM',help="Data FWHM smoothing (3dBlurInMask). Default off. ex: -smooth 3mm ",default='0mm')
 extopts.add_option('',"--coreg_mode",dest='coreg_mode',help="Coregistration with Local Pearson and T2* weights (default), or use align_epi_anat.py (edge method): use 'lp-t2s' or 'aea'",default='lp-t2s')
 extopts.add_option('',"--align_base",dest='align_base',help="Explicitly specify base dataset for volume registration",default='')
@@ -488,10 +491,6 @@ for echo_ii in range(len(datasets)):
 				('NN','NN',prefix,basebrik,almaster,alfres))
 				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base eBvrmask.nii.gz -input s0v_ss.nii.gz -prefix ./s0v_vr.nii.gz %s %s" % \
 				('NN','NN',prefix,basebrik,almaster,alfres))
-		#Masking using anatomical, T2*, S0
-		if options.anat and options.advmask:
-			advfuncmask('%s/%s' % (startdir,refanat),'t2svm_vr.nii.gz','s0v_vr.nii.gz','eBvrmask.nii.gz')
-			sl.append('cp funcmask/_eBvrmask.nii.gz ./eBvrmask.nii.gz')
 
 		#Do grand mean scaling
 		sl.append("3dBrickStat -mask eBvrmask.nii.gz -percentile 50 1 50 eBvrmask.nii.gz > gms.1D" )		
