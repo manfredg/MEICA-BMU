@@ -26,7 +26,7 @@ meica.py and tedana.py have a number of options which you can view using the -h 
 
 Here's an example use:
 
-    `meica.py -d rest1_e1.nii.gz,rest1_e2.nii.gz,rest1_e3.nii.gz -e 15,30,45 -b 15s -a mprage.nii --MNI --prefix sub1_rest`
+    meica.py -d rest1_e1.nii.gz,rest1_e2.nii.gz,rest1_e3.nii.gz -e 15,30,45 -b 15s -a mprage.nii --MNI --prefix sub1_rest
 
 This means:
 
