@@ -9,7 +9,7 @@
 
 # Installation
 
-Install Python and other dependencies. Running `meica.py` without any options will check for dependencies and let you know if they are met. If you don't have numpy/scipy (or appropriate versions) installed, I would strongly recommend using the [Enthought Canopy Python Distribution] (https://www.enthought.com/downloads/). Click [here] (http://wiki.org/installing.html) for more installation help.
+Install Python and other dependencies. Running `meica.py` without any options will check for dependencies and let you know if they are met. If you don't have numpy/scipy (or appropriate versions) installed, I would strongly recommend using the [Enthought Canopy Python Distribution](https://www.enthought.com/downloads/). Click [here](http://wiki.org/installing.html) for more installation help.
 
 # Important Files and Directories
 
