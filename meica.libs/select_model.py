@@ -240,7 +240,9 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	Step 1: Reject anything that's obviously an artifact
 	a. Estimate a null variance
 	"""
-	rej = ncl[andb([Rhos*1.1>Kappas,countsigFS0*1.1>countsigFR2,dice_table[:,1]>dice_table[:,0]])>0]
+	rej = ncl[andb([Rhos*1.1>Kappas,countsigFS0*1.1>countsigFR2])>0]
+	rej = np.union1d(rej,ncl[andb([dice_table[:,1]>dice_table[:,0],varex>np.median(varex)])==2])
+	#rej = ncl[andb([Rhos*1.1>Kappas,countsigFS0*1.1>countsigFR2,dice_table[:,1]>dice_table[:,0]])>0]
 	ncl = np.setdiff1d(ncl,rej)
 	varex_ub_p = scoreatpercentile(varex[rej],50)
 
@@ -314,16 +316,17 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	ncl = np.setdiff1d(ncl,midk)
 
 	"""
-	Step 7: Remove imaging artifacts based on being in the Kappa tail and having low dice
+	Step 7: Remove candidate imaging artifacts based on being in the Kappa tail and having low dice
 	"""
 	Kappas_lim = Kappas[Kappas<Kappas_elbow]
 	Kappas_elbow2 = Kappas_lim[getelbow(Kappas_lim)]
-	midkadd = np.union1d(midkadd,ncl[andb([Kappas[ncl]<Kappas_elbow2,dice_table[ncl,0]<dice_ub])==2 ])
+	midkadd = np.union1d(midkadd,ncl[andb([Kappas[ncl]<Kappas_elbow2,dice_table[ncl,0]<dice_ub,varex[ncl]>varex_lb])==3 ])
 	midk = np.union1d(midk,midkadd)
-	ncl = np.setdiff1d(ncl,midk)
+	empty = np.union1d(empty,ncl[andb([Kappas[ncl]<Kappas_elbow2,dice_table[ncl,0]<dice_ub,varex[ncl]<varex_lb])==3 ])
+	ncl = np.setdiff1d(ncl,np.union1d(midk,empty))
 
 	"""
-	Step 8: Remove imaging artifacts based on high variance and high relatively low FR2
+	Step 8: Remove imaging artifacts based on high variance and relatively low FR2
 	in spatial clusters
 	"""
 	nb = np.setdiff1d(nc,ncl) #i.e. the non-bold set
@@ -364,7 +367,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	ncl = np.setdiff1d(ncl,midk)
 
 	"""
-	Step 12: High relative variance and low noise gain
+	Step 12: High relative variance and low gain in clustered FR2 over noise FR2
 	"""
 	candart = ncl[(rankvec(varex[ncl])-rankvec(Kappas[ncl]))>len(ncl)/2]
 	midkadd = candart[tt_table[candart,0] < scoreatpercentile(tt_table[rej,0],95)]
@@ -374,16 +377,6 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	if debug:
 		import ipdb
 		ipdb.set_trace()
-
-	if olevel>=2:
-		"""
-		Attempt to get rid of physio artifacts:
-			high variance, low T2*, poor TE-dependence
-		"""
-		t2s_l = np.array([scoreatpercentile(fmask(t2s,mask)[F_R2_clmaps[:,ii]!=0],20) for ii in ncl])
-		sel = andb([varex[ncl]>varex_ub*2.,rankvec(tt_table[ncl,0])<len(ncl)/3,rankvec(t2s_l)<len(ncl)/3])==3
-		midk = np.union1d(ncl[sel],midk)
-		ncl = np.setdiff1d(ncl,midk)
 
 	midk=np.array(midk,dtype=np.int); rej=np.array(rej,dtype=np.int);
 	empty=np.array(empty,dtype=np.int)

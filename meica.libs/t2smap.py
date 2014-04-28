@@ -275,8 +275,11 @@ if __name__=='__main__':
 	#Clean up numerical errors
 	tsoc[np.isnan(tsoc)]=0
 	s0[np.isnan(s0)]=0
+	s0[s0<0]=0
 	t2s[np.isnan(t2s)]=0
+	t2s[t2s<0]=0
 	t2sm[np.isnan(t2sm)]=0
+	t2sm[t2sm<0]=0
 
 	niwrite(tsoc,aff,'ocv%s.nii' % suf)
 	niwrite(s0,aff,'s0v%s.nii' % suf)

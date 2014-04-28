@@ -141,7 +141,8 @@ extopts.add_option('',"--qwarp",dest='qwarp',action='store_true',help="Nonlinear
 extopts.add_option('',"--fres",dest='fres',help="Specify functional voxel dim. in mm (iso.) for resampling during preprocessing. Default none. ex: --fres=2.5", default=False)
 extopts.add_option('',"--space",dest='space',help="Path to specific standard space template for affine anatomical normalization",default=False)
 extopts.add_option('',"--no_skullstrip",action="store_true",dest='no_skullstrip',help="Anatomical is already skullstripped (if -a provided)",default=False)
-extopts.add_option('',"--no_despike",action="store_true",dest='no_despike',help="Do not de-spike functional data. Default on is recommended.",default=False)
+extopts.add_option('',"--maskmode",dest='maskmode',help="Mask functional with help from anatomical or standard space images: use 'anat' or 'template' ",default='func')
+extopts.add_option('',"--no_despike",action="store_true",dest='no_despike',help="Do not de-spike functional data. Default is to de-spike, recommended.",default=False)
 extopts.add_option('',"--smooth",dest='FWHM',help="Data FWHM smoothing (3dBlurInMask). Default off. ex: -smooth 3mm ",default='0mm')
 extopts.add_option('',"--coreg_mode",dest='coreg_mode',help="Coregistration with Local Pearson and T2* weights (default), or use align_epi_anat.py (edge method): use 'lp-t2s' or 'aea'",default='lp-t2s')
 extopts.add_option('',"--align_base",dest='align_base',help="Explicitly specify base dataset for volume registration",default='')
@@ -212,9 +213,11 @@ else:
 	trailing=''
 	setname=prefix+options.label
 	
+if not shorthand_dsin and len(datasets)!=len(datasets_in):
+	print "*+ Can't understand dataset specification. Try double quotes around -d argument."
+	sys.exit()
 
 if len(options.tes.split(','))!=len(datasets):
-	#print len(options.tes.split(',')), len(datasets)
 	print "*+ Number of TEs and input datasets must be equal and matched in order. Or try double quotes around -d argument."
 	sys.exit()
 
@@ -266,6 +269,10 @@ if options.qwarp and (options.anat=='' or not options.space):
 	print "*+ Can't specify Qwarp nonlinear coregistration without anatoical and SPACE template!"
 	sys.exit()
 
+if not options.maskmode in ['func','anat','template']:
+	print "*+ Mask mode option '%s' is not recognized!" % options.maskmode
+	sys.exit()
+
 #Parse alignment options
 if options.coreg_mode == 'aea': options.t2salign=False
 elif 'lp' in options.coreg_mode : options.t2salign=True
@@ -293,8 +300,8 @@ if options.fres:
 	if options.qwarp: qwfres="-dxyz %s" % options.fres
 	else: alfres = "-mast_dxyz %s" % options.fres
 else: 
-	qwfres=""
-	alfres=""
+	if options.qwarp: qwfres="-dxyz ${voxsize}" #See section called "Preparing functional masking for this ME-EPI run"
+	else: alfres="-mast_dxyz ${voxsize}"
 if options.anat=='' and options.advmask:
 	print "*+ Can't do anatomical-based functional masking without an anatomical!"
 	sys.exit()
@@ -427,8 +434,8 @@ if options.anat!='':
 	elif options.coreg_mode=='aea':
 		logcomment("Using AFNI align_epi_anat.py to drive anatomical-functional coregistration ")
 		sl.append("3dcopy %s ./ANAT_ns+orig " % alnsmprage)
-		sl.append("align_epi_anat.py -anat2epi -giant_move -volreg off -tshift off -deoblique off -anat_has_skull no -save_script aea_anat_to_ocv.tcsh -anat ANAT_ns+orig -epi ocv_uni+orig -epi_base %i" % (basebrik))
-		sl.append("cp ANAT_ns_e2a_only_mat.aff12.1D %s_al_mat.aff12.1D" % (anatprefix))
+		sl.append("align_epi_anat.py -anat2epi -giant_move -volreg off -tshift off -deoblique off -anat_has_skull no -save_script aea_anat_to_ocv.tcsh -anat ANAT_ns+orig -epi ocv_uni+orig -epi_base 0" )
+		sl.append("cp ANAT_ns_al_mat.aff12.1D %s_al_mat.aff12.1D" % (anatprefix))
 	if options.space: 
 		tlrc_opt = "%s/%s::WARP_DATA -I" % (startdir,atnsmprage)
 		sl.append("cat_matvec -ONELINE %s > %s/%s_ns2at.aff12.1D" % (tlrc_opt,startdir,anatprefix))
@@ -472,37 +479,52 @@ for echo_ii in range(len(datasets)):
 		logcomment("Preparing functional masking for this ME-EPI run",2 )
 		if options.anat: almaster="-master %s" % abmprage
 		else: almaster=""
-		sl.append("3dZeropad %s -prefix eBvrmask.nii.gz ocv_ss.nii.gz[0]" % (zeropad_opts)) #Throw in option to not have t2salign, so no ocv?
-		sl.append("voxsize=`3dinfo -ad3 eBvrmask.nii.gz`")
+		sl.append("3dZeropad %s -prefix eBvrmask.nii.gz ocv_ss.nii.gz[0]" % (zeropad_opts))
+		sl.append("voxsize=`ccalc $(3dinfo -voxvol eBvrmask.nii.gz)**.33`") #Set voxel size
 		#Create base mask
 		if options.anat and options.space and options.qwarp: 
 			sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D{%s}' %s %s -source eBvrmask.nii.gz -interp %s -prefix ./eBvrmask.nii.gz " % \
 			(startdir,dsprefix(nlatnsmprage),prefix,basebrik,almaster,qwfres,'NN'))
-			if options.t2salign:
-				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D{%s}' %s %s -source t2svm_ss.nii.gz -interp %s -prefix ./t2svm_vr.nii.gz " % \
+			if options.t2salign or options.maskmode!='func':
+				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D{%s}' %s %s -source t2svm_ss.nii.gz -interp %s -prefix ./t2svm_ss_vr.nii.gz " % \
 				(startdir,dsprefix(nlatnsmprage),prefix,basebrik,almaster,qwfres,'NN'))
-				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D{%s}' %s %s -source s0v_ss.nii.gz -interp %s -prefix ./s0v_vr.nii.gz " % \
+				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D{%s}' %s %s -source ocv_uni+orig -interp %s -prefix ./ocv_uni_vr.nii.gz " % \
+				(startdir,dsprefix(nlatnsmprage),prefix,basebrik,almaster,qwfres,'NN'))
+				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D{%s}' %s %s -source s0v_ss.nii.gz -interp %s -prefix ./s0v_ss_vr.nii.gz " % \
 				(startdir,dsprefix(nlatnsmprage),prefix,basebrik,almaster,qwfres,'NN'))
 		elif options.anat:
 			sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base eBvrmask.nii.gz -input eBvrmask.nii.gz -prefix ./eBvrmask.nii.gz %s %s" % \
 			('NN','NN',prefix,basebrik,almaster,alfres))
-			if options.t2salign:
-				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base eBvrmask.nii.gz -input t2svm_ss.nii.gz -prefix ./t2svm_vr.nii.gz %s %s" % \
+			if options.t2salign or options.maskmode!='func':
+				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base eBvrmask.nii.gz -input t2svm_ss.nii.gz -prefix ./t2svm_ss_vr.nii.gz %s %s" % \
 				('NN','NN',prefix,basebrik,almaster,alfres))
-				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base eBvrmask.nii.gz -input s0v_ss.nii.gz -prefix ./s0v_vr.nii.gz %s %s" % \
+				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base eBvrmask.nii.gz -input ocv_uni+orig -prefix ./ocv_uni_vr.nii.gz %s %s" % \
+				('NN','NN',prefix,basebrik,almaster,alfres))
+				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base eBvrmask.nii.gz -input s0v_ss.nii.gz -prefix ./s0v_ss_vr.nii.gz %s %s" % \
 				('NN','NN',prefix,basebrik,almaster,alfres))
 
-		#Do grand mean scaling
-		sl.append("3dBrickStat -mask eBvrmask.nii.gz -percentile 50 1 50 eBvrmask.nii.gz > gms.1D" )		
+		if options.anat and options.maskmode != 'func':
+			if options.space and options.maskmode == 'template':
+				sl.append("3dfractionize -template eBvrmask.nii.gz -input abtemplate.nii.gz -prefix ./anatmask_epi.nii.gz -clip 1")
+				logcomment("Preparing functional mask using information from standard space template (takes a little while)")
+			if options.maskmode == 'anat':
+				sl.append("3dfractionize -template eBvrmask.nii.gz -input %s -prefix ./anatmask_epi.nii.gz -clip 0.5" % (refanat) )
+				logcomment("Preparing functional mask using information from anatomical (takes a little while)")
+			sl.append("3dBrickStat -mask eBvrmask.nii.gz -percentile 50 1 50 t2svm_ss_vr.nii.gz > t2s_med.1D")
+			sl.append("3dBrickStat -mask eBvrmask.nii.gz -percentile 50 1 50 s0v_ss_vr.nii.gz > s0v_med.1D")
+			sl.append("t2sm=`cat t2s_med.1D`; t2sma=($t2sm); t2sm=${t2sma[1]}")
+			sl.append("s0vm=`cat s0v_med.1D`; s0vma=($s0vm); s0vm=${s0vma[1]}")
+			sl.append("3dcalc -a ocv_uni_vr.nii.gz -b anatmask_epi.nii.gz -c t2svm_ss_vr.nii.gz -d s0v_ss_vr.nii.gz -expr \"a-a*equals(equals(b,0)+isnegative(c-${t2sm})+ispositive(d-${s0vm}),3)\" -overwrite -prefix ocv_uni_vr.nii.gz ")
+			sl.append("3dSkullStrip -overwrite -input ocv_uni_vr.nii.gz -prefix eBvrmask.nii.gz ")
+			if options.fres: resstring = "-dxyz %s %s %s" % (options.fres,options.fres,options.fres)
+			else: resstring = "-dxyz ${voxsize} ${voxsize} ${voxsize}"
+			sl.append("3dresample -overwrite -master abtemplate.nii.gz %s -input eBvrmask.nii.gz -prefix eBvrmask.nii.gz" % (resstring))
 
-		if options.anat!='' and not options.fres:
-			logcomment("Resample EPI to anatomical space using EPI native resolution",level=2)
-			sl.append("3dresample -overwrite -rmode NN -dxyz ${voxsize} -inset eBvrmask.nii.gz -prefix eBvrmask.nii.gz -master %s" % (abmprage))
-		elif options.anat=='':
+		if options.anat=='':
 			logcomment("Trim empty space off of mask dataset")
 			sl.append("3dAutobox -overwrite -prefix eBvrmask%s eBvrmask%s" % (osf,osf) )
 		sl.append("3dcalc -float -a eBvrmask.nii.gz -expr 'notzero(a)' -overwrite -prefix eBvrmask.nii.gz")
-	
+
 	logcomment("Apply combined normalization/co-registration/motion correction parameter set")
 	if options.qwarp: sl.append("3dNwarpApply -nwarp '%s/%s_WARP.nii.gz' -affter %s_wmat.aff12.1D -master eBvrmask.nii.gz -source %s_ts+orig -interp %s -prefix ./%s_vr%s " % \
 			(startdir,dsprefix(nlatnsmprage),prefix,dsin,align_interp,dsin,osf))
@@ -513,6 +535,8 @@ for echo_ii in range(len(datasets)):
 		sl.append("3dcalc -float -overwrite -a eBvrmask.nii.gz -b ./%s_vr%s[%i..$] -expr 'step(a)*b' -prefix ./%s_sm%s " % (dsin,osf,basebrik,dsin,osf))
 	else: 
 		sl.append("3dBlurInMask -fwhm %s -mask eBvrmask%s -prefix ./%s_sm%s ./%s_vr%s[%i..$]" % (options.FWHM,osf,dsin,osf,dsin,osf,basebrik))
+	#Do grand mean scaling
+	sl.append("3dBrickStat -mask eBvrmask.nii.gz -percentile 50 1 50 %s_sm%s[%i] > gms.1D" % (dsin,osf,basebrik))
 	sl.append("gms=`cat gms.1D`; gmsa=($gms); p50=${gmsa[1]}")
 	sl.append("3dcalc -float -overwrite -a ./%s_sm%s -expr \"a*10000/${p50}\" -prefix ./%s_sm%s" % (dsin,osf,dsin,osf))
 	sl.append("3dTstat -prefix ./%s_mean%s ./%s_sm%s" % (dsin,osf,dsin,osf))
