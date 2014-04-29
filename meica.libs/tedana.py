@@ -73,8 +73,13 @@ def MAD(data, axis=None):
     return np.median(np.abs(data - np.median(data, axis)), axis)
 
 def dice(A,B):
-	AB_un = andb([A!=0,B!=0])==2
-	return 2.*np.array(AB_un,dtype=np.int).sum(0)/(np.array(A!=0,dtype=np.int).sum(0)+(np.array(B!=0,dtype=np.int).sum(0))) 
+	denom = np.array(A!=0,dtype=np.int).sum(0)+(np.array(B!=0,dtype=np.int).sum(0))
+	if denom!=0:
+		AB_un = andb([A!=0,B!=0])==2
+		numer = np.array(AB_un,dtype=np.int).sum(0)
+		return 2.*numer/denom
+	else:
+		return 0.
 
 def spatclust(data,mask,csize,thr,header,aff,infile=None,dindex=0,tindex=0):
 	if infile==None:
