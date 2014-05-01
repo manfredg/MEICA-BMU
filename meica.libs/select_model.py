@@ -244,7 +244,10 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	rej = np.union1d(rej,ncl[andb([dice_table[:,1]>dice_table[:,0],varex>np.median(varex)])==2])
 	#rej = ncl[andb([Rhos*1.1>Kappas,countsigFS0*1.1>countsigFR2,dice_table[:,1]>dice_table[:,0]])>0]
 	ncl = np.setdiff1d(ncl,rej)
-	varex_ub_p = scoreatpercentile(varex[rej],50)
+	try:
+		varex_ub_p = np.median(varex[rej])
+	except:
+		varex_ub_p = np.median(varex)
 
 	"""
 	Step 2: Make a  guess for what the good components are, and good component properties:
