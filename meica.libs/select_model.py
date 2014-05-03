@@ -234,34 +234,36 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		signal_FR2_Z  = np.log10(np.unique(F_R2_maps[Z_clmaps[:,ii]==1,ii]))
 		counts_FR2_Z[ii,:] = [len(signal_FR2_Z),len(noise_FR2_Z)]
 		tt_table[ii,:2] = stats.ttest_ind(signal_FR2_Z,noise_FR2_Z,equal_var=False) 
-
 	
+	"""
+	Assemble decision table
+	"""
+	d_table_full = np.vstack([Kappas,Rhos,dice_table.T,tt_table[:,0]]).T
+	d_table_rank = np.vstack([len(nc)-rankvec(Kappas), rankvec(Rhos), len(nc)-rankvec(dice_table[:,0]), rankvec(dice_table[:,1]), len(nc)-rankvec(tt_table[:,0])]).T
+	d_table_score = d_table_rank.sum(1)
+
 	"""
 	Step 1: Reject anything that's obviously an artifact
 	a. Estimate a null variance
 	"""
 	rej = ncl[andb([Rhos*1.1>Kappas,countsigFS0*1.1>countsigFR2])>0]
 	rej = np.union1d(rej,ncl[andb([dice_table[:,1]>dice_table[:,0],varex>np.median(varex)])==2])
-	#rej = ncl[andb([Rhos*1.1>Kappas,countsigFS0*1.1>countsigFR2,dice_table[:,1]>dice_table[:,0]])>0]
 	ncl = np.setdiff1d(ncl,rej)
-	try:
-		varex_ub_p = np.median(varex[rej])
-	except:
-		varex_ub_p = np.median(varex)
+	varex_ub_p = np.median(varex)
 
 	"""
-	Step 2: Make a  guess for what the good components are, and good component properties:
+	Step 2: Make a  guess for what the good components are, and good component properties
 	a. Not outlier variance
 	b. Kappa>kappa_elbow
 	c. Rho<Rho_elbow
 	"""
 	ncls = ncl.copy()
 	for nn in range(3): ncls = ncls[1:][(varex[ncls][1:]-varex[ncls][:-1])<varex_ub_p] #Step 2a
-	Kappas_lim = Kappas[ncls]
+	Kappas_lim = Kappas[Kappas<100]
 	Rhos_lim = Rhos[ncls]
 	Kappas_elbow = min(scoreatpercentile(F_R2_maps.flatten(),95),Kappas_lim[getelbow(Kappas_lim)])
 	Rhos_elbow = Rhos_lim[getelbow(Rhos_lim)]
-	good_guess = ncls[andb([Kappas[ncls]>Kappas_elbow, Rhos[ncls]<Rhos_elbow])==2]
+	good_guess = ncls[andb([Kappas[ncls]>=Kappas_elbow, Rhos[ncls]<Rhos_elbow, dice_table[ncls,0]>2*dice_table[ncls,1],tt_table[ncls,0]>0 ])==4]
 	varex_lb = scoreatpercentile(varex[good_guess],25)
 	varex_ub = scoreatpercentile(varex[good_guess],90)
 	countsigZ_lb = scoreatpercentile(countsigZ[rej],25)
@@ -274,115 +276,43 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	midk = np.union1d(midkadd, ncl[andb([varex[ncl]>3*varex_ub, countsigZ[ncl]<countsigZ_lb])==2  ]  )
 	ncl = np.setdiff1d(ncl,midk)
 
+	if debug:
+		import ipdb
+		ipdb.set_trace()
+
 	"""
-	Step 4: Isolate "empty" ultra-low variance components
-	a. Use dice metric of midk and rejected to estimate a "null" dice overlap
-	b. Find the empty group as low dice and low variance
+	Step 4: Get rid of midk components by having higher than max decision score and high variance
 	"""
-	null_dice = dice_table[np.hstack([midk,rej]),:].flatten()
-	null_dice = null_dice[null_dice>0.]
-	dice_lb = scoreatpercentile(null_dice,10)
-	empty = ncl[andb([varex[ncl]<varex_lb,dice_table[ncl,0]<=dice_lb])==2]
+	max_good_d_score = max(d_table_score[good_guess])
+	midkadd = ncl[andb([d_table_score[ncl] > max_good_d_score, varex[ncl] > varex_lb])==2]
+	midk = np.union1d(midkadd, midk  )
+	ncl = np.setdiff1d(ncl,midk)
+
+	"""
+	Step 5: Find and remove candidate artifacts
+	a. Outlier variance
+	b. High S0 dice
+	c. No gain clustered F_R2 distributed like noise
+	"""
+	for nn in range(3): ncls = ncls[1:][(varex[ncls][1:]-varex[ncls][:-1])<varex_lb]
+	candart = np.setdiff1d(ncl,ncls) #Step 5a
+	midkadd = np.union1d(midkadd,candart[tt_table[candart,0]<1])
+	candart = np.union1d(candart,ncl[d_table_full[ncl,2]<2*d_table_full[ncl,3]])  #Step 5b
+	candart = np.union1d(candart,ncl[d_table_full[ncl,4]<0])  #Step 5c
+	candart = candart[varex[candart]>varex_lb] #Only consider comps with significant variance
+	midkadd = np.union1d(midkadd,candart[d_table_score[candart]>scoreatpercentile(d_table_score[good_guess],98)])
+	midk = np.union1d(midk,midkadd)
+	ncl = np.setdiff1d(ncl,midk)
+
+	"""
+	Step 6: Find components to ignore
+	"""
+	empty = np.setdiff1d(ncl,np.union1d(good_guess, ncl[varex[ncl]>varex_lb]))
 	ncl = np.setdiff1d(ncl,empty)
-
-	"""
-	Step 5: Remove artifacts based on high Rho as midk
-	"""
-	midkadd=np.union1d(midkadd,ncl[Rhos[ncl]>np.median(Rhos[rej])])
-	midk = np.union1d(midk,midkadd)
-	ncl = np.setdiff1d(ncl,midk)
-
-	"""
-	The following are a list of steps to isolate "mixed" R2*/non-R2* artifact
-	structured as "two-factor tests," paring a candidacy test with an exclusion 
-	test amoungst these these choices: ~high variance, high Rho, low R2* dice, 
-	low R2* fit in spatial clusters
-	While tests indicate effectiveness on a wide range of fMRI data, (task/rest, 
-	3T/7T, high/low motion, high/low acceleration, old/young), this procedure is 
-	not ideal since it is somewhat arbitrary and redundant. Efforts can be made to
-	implement these tests more elegantly. A step-by-step performance assessment
-	could indicate if some steps mostly or completely subsume other tests, to
-	ultimately make them more streamlined. Better yet, using the above measures of
-	component BOLD/non-BOLD likeless as features for SVM-RBF classification may 
-	achieve good component selection in a well-understood framework.
-	"""
-
-	"""
-	Step 6: Remove imaging artifacts based on high variance and low dice
-	"""
-	ncls=ncl.copy()
-	for nn in range(3): ncls = ncls[1:][(varex[ncls][1:]-varex[ncls][:-1])<varex_lb]
-	candart = np.setdiff1d(ncl,ncls)
-	dice_ub = scoreatpercentile(dice_table[rej,0],90)
-	midkadd = np.intersect1d(candart,ncl[dice_table[ncl,0]<=dice_ub])
-	midk = np.union1d(midk,midkadd)
-	ncl = np.setdiff1d(ncl,midk)
-
-	"""
-	Step 7: Remove candidate imaging artifacts based on being in the Kappa tail and having low dice
-	"""
-	Kappas_lim = Kappas[Kappas<Kappas_elbow]
-	Kappas_elbow2 = Kappas_lim[getelbow(Kappas_lim)]
-	midkadd = np.union1d(midkadd,ncl[andb([Kappas[ncl]<Kappas_elbow2,dice_table[ncl,0]<dice_ub,varex[ncl]>varex_lb])==3 ])
-	midk = np.union1d(midk,midkadd)
-	empty = np.union1d(empty,ncl[andb([Kappas[ncl]<Kappas_elbow2,dice_table[ncl,0]<dice_ub,varex[ncl]<varex_lb])==3 ])
-	ncl = np.setdiff1d(ncl,np.union1d(midk,empty))
-
-	"""
-	Step 8: Remove imaging artifacts based on high variance and relatively low FR2
-	in spatial clusters
-	"""
-	nb = np.setdiff1d(nc,ncl) #i.e. the non-bold set
-	ncls=ncl.copy()
-	for nn in range(3): ncls = ncls[1:][(varex[ncls][1:]-varex[ncls][:-1])<varex_lb]
-	candart = np.setdiff1d(ncl,ncls)
-	candart = candart[counts_FR2_Z[candart,1]>counts_FR2_Z[candart,0]]
-	midkadd = candart[tt_table[candart,0]<scoreatpercentile(tt_table[nb,0],75)]
-	midk = np.union1d(midk,midkadd)
-	ncl = np.setdiff1d(ncl,midk)
-
-	"""
-	Step 9: Remove imaging artifacts based on high Rho and
-	a. Low R2* dice compared to S0 dice
-	b. Poor R2* model fits in clusters versus spatial noise (negative in tt_table)
-	"""	
-	candart = ncl[Rhos[ncl]>Rhos_elbow]
-	midkadd = candart[dice_table[candart,0]<dice_table[candart,1]*2.]
-	midkadd = np.union1d(midkadd,candart[tt_table[candart,0]<0.])
-	midk = np.union1d(midk,midkadd)
-	ncl = np.setdiff1d(ncl,midk)
-
-	"""
-	Step 10: Remove imaging artifacts based on low Dice and high variance
-	"""	
-	if len(empty)!=0:
-		candart = ncl[dice_table[ncl,0]<=scoreatpercentile(dice_table[empty,0],25)]
-		midkadd=candart[varex[candart]>varex_lb]
-		midk = np.union1d(midk,midkadd)
-		ncl = np.setdiff1d(ncl,midk)
-
-	"""
-	Step 11: Remove artifacts based on:
-	a. significantly low R2* model fits in clusters and low Dice
-	"""	
-	midkadd = ncl[andb([tt_table[ncl,0]<0, tt_table[ncl,1]<0.001, dice_table[ncl,0]<dice_ub])==3]
-	midk = np.union1d(midk,midkadd)
-	ncl = np.setdiff1d(ncl,midk)
-
-	"""
-	Step 12: High relative variance and low gain in clustered FR2 over noise FR2
-	"""
-	candart = ncl[(rankvec(varex[ncl])-rankvec(Kappas[ncl]))>len(ncl)/2]
-	midkadd = candart[tt_table[candart,0] < scoreatpercentile(tt_table[rej,0],95)]
-	midk = np.union1d(midk,midkadd)
-	ncl = np.setdiff1d(ncl,midk)
 
 	if debug:
 		import ipdb
 		ipdb.set_trace()
 
-	midk=np.array(midk,dtype=np.int); rej=np.array(rej,dtype=np.int);
-	empty=np.array(empty,dtype=np.int)
-
-	return list(ncl),list(rej),list(midk),list(empty)
+	return list(sorted(ncl)),list(sorted(rej)),list(sorted(midk)),list(sorted(empty))
 
