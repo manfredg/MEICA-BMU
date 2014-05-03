@@ -518,7 +518,7 @@ for echo_ii in range(len(datasets)):
 			sl.append("3dSkullStrip -overwrite -input ocv_uni_vr.nii.gz -prefix eBvrmask.nii.gz ")
 			if options.fres: resstring = "-dxyz %s %s %s" % (options.fres,options.fres,options.fres)
 			else: resstring = "-dxyz ${voxsize} ${voxsize} ${voxsize}"
-			sl.append("3dresample -overwrite -master abtemplate.nii.gz %s -input eBvrmask.nii.gz -prefix eBvrmask.nii.gz" % (resstring))
+			sl.append("3dresample -overwrite -master %s %s -input eBvrmask.nii.gz -prefix eBvrmask.nii.gz" % (abmprage,resstring))
 
 		if options.anat=='':
 			logcomment("Trim empty space off of mask dataset")
