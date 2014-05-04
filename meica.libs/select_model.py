@@ -211,6 +211,8 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	countsigZ = Z_clmaps.sum(0)
 	countsigFS0 = F_S0_clmaps.sum(0)
 	countsigFR2 = F_R2_clmaps.sum(0)
+	countnoise = np.zeros(len(nc))
+	countsvn = np.zeros(len(nc))
 
 	"""
 	Make table of dice values
@@ -229,7 +231,9 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	tt_table = np.zeros([len(nc),4])
 	counts_FR2_Z = np.zeros([len(nc),2])
 	for ii in nc:
-		comp_noise_sel = andb([Z_maps[:,ii]>1.95,Z_clmaps[:,ii]==0])==2
+		comp_noise_sel = andb([np.abs(Z_maps[:,ii])>1.95,Z_clmaps[:,ii]==0])==2
+		countnoise[ii] = np.array(comp_noise_sel,dtype=np.int).sum()
+		countsvn[ii] = np.array(Z_clmaps[:,ii]==1,dtype=np.int).sum()/countnoise[ii]
 		noise_FR2_Z = np.log10(np.unique(F_R2_maps[comp_noise_sel,ii]))
 		signal_FR2_Z  = np.log10(np.unique(F_R2_maps[Z_clmaps[:,ii]==1,ii]))
 		counts_FR2_Z[ii,:] = [len(signal_FR2_Z),len(noise_FR2_Z)]
@@ -239,7 +243,8 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	Assemble decision table
 	"""
 	d_table_full = np.vstack([Kappas,Rhos,dice_table.T,tt_table[:,0]]).T
-	d_table_rank = np.vstack([len(nc)-rankvec(Kappas), rankvec(Rhos), len(nc)-rankvec(dice_table[:,0]), rankvec(dice_table[:,1]), len(nc)-rankvec(tt_table[:,0])]).T
+	d_table_rank = np.vstack([len(nc)-rankvec(Kappas), rankvec(Rhos), len(nc)-rankvec(dice_table[:,0]), \
+		rankvec(dice_table[:,1]), len(nc)-rankvec(tt_table[:,0]), rankvec(countsigFS0), rankvec(countnoise) ]).T
 	d_table_score = d_table_rank.sum(1)
 
 	"""
@@ -256,6 +261,9 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	a. Not outlier variance
 	b. Kappa>kappa_elbow
 	c. Rho<Rho_elbow
+	d. High R2* dice compared to S0 dice
+	e. Gain of F_R2 in clusters vs noise
+	f. Estimate a low and high variance, and number of sig. voxels
 	"""
 	ncls = ncl.copy()
 	for nn in range(3): ncls = ncls[1:][(varex[ncls][1:]-varex[ncls][:-1])<varex_ub_p] #Step 2a
@@ -292,13 +300,14 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	Step 5: Find and remove candidate artifacts
 	a. Outlier variance
 	b. High S0 dice
-	c. No gain clustered F_R2 distributed like noise
+	c. Clustered F_R2 distributed like noise
+	d. Reject only those in (a,b,c) if variance is greater than median variance and d score is high
 	"""
 	for nn in range(3): ncls = ncls[1:][(varex[ncls][1:]-varex[ncls][:-1])<varex_lb]
 	candart = np.setdiff1d(ncl,ncls) #Step 5a
 	candart = np.union1d(candart,ncl[d_table_full[ncl,2]<2*d_table_full[ncl,3]])  #Step 5b
 	candart = np.union1d(candart,ncl[d_table_full[ncl,4]<0])  #Step 5c
-	candart = candart[varex[candart]>varex_lb] #Only consider comps with significant variance
+	candart = candart[varex[candart]>varex_ub_p] #Only consider comps with significant variance
 	midkadd = np.union1d(midkadd,candart[d_table_score[candart]>scoreatpercentile(d_table_score[good_guess],98)])
 	midk = np.union1d(midk,midkadd)
 	ncl = np.setdiff1d(ncl,midk)
@@ -317,8 +326,13 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 
 	"""
 	Step 7: Safety catch for high variance junk that looks like T2*
+	a. Disproportionate variance compared to Kappa
+	b. Disproportionate F_R2 gain compared to Kappa
+	c. Test for F_R2 gain was fair
 	"""
-	candart = np.intersect1d(ncl[(rankvec(varex[ncl])-rankvec(Kappas[ncl]))>len(ncl)/2],ncl[(rankvec(varex[ncl])-rankvec(tt_table[ncl,0]))>len(ncl)/2])
+	candart = ncl[andb([(rankvec(varex[ncl])-rankvec(Kappas[ncl]))>len(ncl)/2 , \
+		(rankvec(varex[ncl])-rankvec(tt_table[ncl,0]))>len(ncl)/2, \
+		((len(ncl)-rankvec(countsvn[ncl]))-rankvec(varex[ncl]))>len(ncl)/2 ])==3]  #Smaller svns are worse in theory, but better for tt comparison
 	midk = np.union1d(midk,candart)
 	ncl = np.setdiff1d(ncl,midk)
 
