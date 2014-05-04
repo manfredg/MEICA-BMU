@@ -296,7 +296,6 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	"""
 	for nn in range(3): ncls = ncls[1:][(varex[ncls][1:]-varex[ncls][:-1])<varex_lb]
 	candart = np.setdiff1d(ncl,ncls) #Step 5a
-	midkadd = np.union1d(midkadd,candart[tt_table[candart,0]<1])
 	candart = np.union1d(candart,ncl[d_table_full[ncl,2]<2*d_table_full[ncl,3]])  #Step 5b
 	candart = np.union1d(candart,ncl[d_table_full[ncl,4]<0])  #Step 5c
 	candart = candart[varex[candart]>varex_lb] #Only consider comps with significant variance
@@ -304,11 +303,24 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	midk = np.union1d(midk,midkadd)
 	ncl = np.setdiff1d(ncl,midk)
 
+	if debug:
+		import ipdb
+		ipdb.set_trace()
+
 	"""
 	Step 6: Find components to ignore
 	"""
-	empty = np.setdiff1d(ncl,np.union1d(good_guess, ncl[varex[ncl]>varex_lb]))
+	emptycand = np.setdiff1d(ncl,np.union1d(good_guess, ncl[varex[ncl]>varex_lb]))
+	emptycand = np.setdiff1d(emptycand, emptycand[d_table_score[emptycand]<scoreatpercentile(d_table_score[good_guess],90)]) 
+	empty = np.union1d(empty,emptycand)
 	ncl = np.setdiff1d(ncl,empty)
+
+	"""
+	Step 7: Safety catch for high variance junk that looks like T2*
+	"""
+	candart = np.intersect1d(ncl[(rankvec(varex[ncl])-rankvec(Kappas[ncl]))>len(ncl)/2],ncl[(rankvec(varex[ncl])-rankvec(tt_table[ncl,0]))>len(ncl)/2])
+	midk = np.union1d(midk,candart)
+	ncl = np.setdiff1d(ncl,midk)
 
 	if debug:
 		import ipdb
