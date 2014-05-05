@@ -244,7 +244,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	"""
 	d_table_full = np.vstack([Kappas,Rhos,dice_table.T,tt_table[:,0]]).T
 	d_table_rank = np.vstack([len(nc)-rankvec(Kappas), rankvec(Rhos), len(nc)-rankvec(dice_table[:,0]), \
-		rankvec(dice_table[:,1]), len(nc)-rankvec(tt_table[:,0]), rankvec(countsigFS0), rankvec(countnoise) ]).T
+		 len(nc)-rankvec(tt_table[:,0]), rankvec(countnoise) ]).T
 	d_table_score = d_table_rank.sum(1)
 
 	"""
@@ -291,49 +291,36 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	"""
 	Step 4: Get rid of midk components by having higher than max decision score and high variance
 	"""
-	max_good_d_score = max(d_table_score[good_guess])
-	midkadd = ncl[andb([d_table_score[ncl] > max_good_d_score, varex[ncl] > varex_lb])==2]
+	max_good_d_score = 1.25*len(good_guess)*d_table_rank.shape[1]
+	midkadd = ncl[andb([d_table_score[ncl] > max_good_d_score, varex[ncl] > varex_ub])==2]
 	midk = np.union1d(midkadd, midk  )
 	ncl = np.setdiff1d(ncl,midk)
 
 	"""
-	Step 5: Find and remove candidate artifacts
-	a. Outlier variance
-	b. High S0 dice
-	c. Clustered F_R2 distributed like noise
-	d. Reject only those in (a,b,c) if variance is greater than median variance and d score is high
+	Step 5: Find components to ignore
 	"""
-	for nn in range(3): ncls = ncls[1:][(varex[ncls][1:]-varex[ncls][:-1])<varex_lb]
-	candart = np.setdiff1d(ncl,ncls) #Step 5a
-	candart = np.union1d(candart,ncl[d_table_full[ncl,2]<2*d_table_full[ncl,3]])  #Step 5b
-	candart = np.union1d(candart,ncl[d_table_full[ncl,4]<0])  #Step 5c
-	candart = candart[varex[candart]>varex_ub_p] #Only consider comps with significant variance
-	midkadd = np.union1d(midkadd,candart[d_table_score[candart]>scoreatpercentile(d_table_score[good_guess],98)])
-	midk = np.union1d(midk,midkadd)
-	ncl = np.setdiff1d(ncl,midk)
+	emptycand = np.setdiff1d(ncl,np.union1d(good_guess, ncl[varex[ncl]>varex_lb]))
+	emptycand = np.setdiff1d(emptycand, emptycand[d_table_score[emptycand]<scoreatpercentile(d_table_score[good_guess],90)]) 
+	empty = np.array(np.union1d(empty,emptycand),dtype=np.int)
+	ncl = np.setdiff1d(ncl,empty)
 
 	if debug:
 		import ipdb
 		ipdb.set_trace()
 
 	"""
-	Step 6: Find components to ignore
+	Step 6: Scrub the tail and remove low Kappa spike components
 	"""
-	emptycand = np.setdiff1d(ncl,np.union1d(good_guess, ncl[varex[ncl]>varex_lb]))
-	emptycand = np.setdiff1d(emptycand, emptycand[d_table_score[emptycand]<scoreatpercentile(d_table_score[good_guess],90)]) 
-	empty = np.union1d(empty,emptycand)
-	ncl = np.setdiff1d(ncl,empty)
-
-	"""
-	Step 7: Safety catch for high variance junk that looks like T2*
-	a. Disproportionate variance compared to Kappa
-	b. Disproportionate F_R2 gain compared to Kappa
-	c. Test for F_R2 gain was fair
-	"""
-	candart = ncl[andb([(rankvec(varex[ncl])-rankvec(Kappas[ncl]))>len(ncl)/2 , \
-		(rankvec(varex[ncl])-rankvec(tt_table[ncl,0]))>len(ncl)/2, \
-		((len(ncl)-rankvec(countsvn[ncl]))-rankvec(varex[ncl]))>len(ncl)/2 ])==3]  #Smaller svns are worse in theory, but better for tt comparison
-	midk = np.union1d(midk,candart)
+	midkadd = ncl[rankvec(varex[ncl])-rankvec(Kappas[ncl])>len(ncl)/2]
+	midkadd = np.union1d(midkadd,np.intersect1d(ncl[varex[ncl]>varex_lb],ncl[tt_table[ncl,0]<0]))
+	try:
+		tail = ncl[len(good_guess):]
+		kurts = stats.kurtosis(mmix)
+		tail_scrub = np.intersect1d(tail,2*ncl[kurts[ncl]>scoreatpercentile(kurts[good_guess],90)])
+		midkadd = np.union1d(midkadd,tail_scrub)
+	except:
+		pass
+	midk = np.union1d(midk,midkadd)
 	ncl = np.setdiff1d(ncl,midk)
 
 	if debug:
