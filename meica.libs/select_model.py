@@ -243,7 +243,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	Assemble decision table
 	"""
 	d_table_full = np.vstack([Kappas,Rhos,dice_table.T,tt_table[:,0]]).T
-	d_table_rank = np.vstack([len(nc)-rankvec(Kappas), rankvec(Rhos), len(nc)-rankvec(dice_table[:,0]), \
+	d_table_rank = np.vstack([len(nc)-rankvec(Kappas), len(nc)-rankvec(dice_table[:,0]), \
 		 len(nc)-rankvec(tt_table[:,0]), rankvec(countnoise) ]).T
 	d_table_score = d_table_rank.sum(1)
 
@@ -268,8 +268,8 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	ncls = ncl.copy()
 	for nn in range(3): ncls = ncls[1:][(varex[ncls][1:]-varex[ncls][:-1])<varex_ub_p] #Step 2a
 	Kappas_lim = Kappas[Kappas<100]
+	Kappas_elbow = min(scoreatpercentile(F_R2_maps.flatten(),95),Kappas[getelbow(Kappas)],Kappas_lim[getelbow(Kappas_lim)])
 	Rhos_lim = Rhos[ncls]
-	Kappas_elbow = min(scoreatpercentile(F_R2_maps.flatten(),95),Kappas_lim[getelbow(Kappas_lim)])
 	Rhos_elbow = Rhos_lim[getelbow(Rhos_lim)]
 	good_guess = ncls[andb([Kappas[ncls]>=Kappas_elbow, Rhos[ncls]<Rhos_elbow, dice_table[ncls,0]>2*dice_table[ncls,1],tt_table[ncls,0]>0 ])==4]
 	varex_lb = scoreatpercentile(varex[good_guess],25)
@@ -289,10 +289,11 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		ipdb.set_trace()
 
 	"""
-	Step 4: Get rid of midk components by having higher than max decision score and high variance
+	Step 4: Get rid of midk components which have higher than max decision score and high variance
 	"""
-	max_good_d_score = 1.25*len(good_guess)*d_table_rank.shape[1]
+	max_good_d_score = 1.25*len(good_guess)*d_table_rank.shape[1] #25% leniency factor
 	midkadd = ncl[andb([d_table_score[ncl] > max_good_d_score, varex[ncl] > varex_ub])==2]
+	midkadd = np.intersect1d(ncl[varex[ncl]>varex_lb],ncl[tt_table[ncl,0]<0])
 	midk = np.union1d(midkadd, midk  )
 	ncl = np.setdiff1d(ncl,midk)
 
@@ -311,15 +312,15 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	"""
 	Step 6: Scrub the tail and remove low Kappa spike components
 	"""
-	midkadd = ncl[rankvec(varex[ncl])-rankvec(Kappas[ncl])>len(ncl)/2]
-	midkadd = np.union1d(midkadd,np.intersect1d(ncl[varex[ncl]>varex_lb],ncl[tt_table[ncl,0]<0]))
-	try:
+	if len(ncl)>len(good_guess):
 		tail = ncl[len(good_guess):]
-		kurts = stats.kurtosis(mmix)
-		tail_scrub = np.intersect1d(tail,2*ncl[kurts[ncl]>scoreatpercentile(kurts[good_guess],90)])
-		midkadd = np.union1d(midkadd,tail_scrub)
-	except:
-		pass
+		midkadd = np.intersect1d(tail,ncl[rankvec(varex[ncl])-rankvec(Kappas[ncl])>len(ncl)/2])
+		try:
+			kurts = stats.kurtosis(mmix)
+			tail_scrub = np.intersect1d(tail,ncl[kurts[ncl]>4*scoreatpercentile(kurts[good_guess],90)])
+			midkadd = np.union1d(midkadd,tail_scrub)
+		except:
+			pass
 	midk = np.union1d(midk,midkadd)
 	ncl = np.setdiff1d(ncl,midk)
 
