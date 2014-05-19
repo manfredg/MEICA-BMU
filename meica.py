@@ -144,6 +144,7 @@ extopts.add_option('',"--no_skullstrip",action="store_true",dest='no_skullstrip'
 extopts.add_option('',"--maskmode",dest='maskmode',help="Mask functional with help from anatomical or standard space images: use 'anat' or 'template' ",default='func')
 extopts.add_option('',"--no_despike",action="store_true",dest='no_despike',help="Do not de-spike functional data. Default is to de-spike, recommended.",default=False)
 extopts.add_option('',"--smooth",dest='FWHM',help="Data FWHM smoothing (3dBlurInMask). Default off. ex: -smooth 3mm ",default='0mm')
+extopts.add_option('',"--axialize",action="store_true",dest='axialize',help="Axialize data, for anatomical/functional data with different acq. directions or importing from FSL/SPM .",default=False)
 extopts.add_option('',"--coreg_mode",dest='coreg_mode',help="Coregistration with Local Pearson and T2* weights (default), or use align_epi_anat.py (edge method): use 'lp-t2s' or 'aea'",default='lp-t2s')
 extopts.add_option('',"--align_base",dest='align_base',help="Explicitly specify base dataset for volume registration",default='')
 extopts.add_option('',"--TR",dest='TR',help="The TR. Default read from input dataset header",default='')
@@ -302,7 +303,7 @@ if options.fres:
 else: 
 	if options.qwarp: qwfres="-dxyz ${voxsize}" #See section called "Preparing functional masking for this ME-EPI run"
 	else: alfres="-mast_dxyz ${voxsize}"
-if options.anat=='' and options.advmask:
+if options.anat=='' and options.maskmode!='func':
 	print "*+ Can't do anatomical-based functional masking without an anatomical!"
 	sys.exit()
 
@@ -346,7 +347,27 @@ for e_ii in range(len(datasets)):
 		sl.append("nifti_tool -mod_hdr -mod_field sform_code 1 -mod_field qform_code 1 -infiles ./%s.nii -overwrite" % (  getdsname(e_ii,True)  ))
 isf = '.nii'
 	
+#Assign and write base volume, then axialize
 vrAinput = "./%s%s" % (vrbase,isf)
+
+logcomment("Calculate and save motion and obliquity parameters, despiking first if not disabled, and separately save and mask the base volume",level=1)
+
+#Compute obliquity matrix
+if oblique_mode: 
+	if options.anat!='': sl.append("3dWarp -verb -card2oblique %s[0] -overwrite  -newgrid 1.000000 -prefix ./%s_ob.nii.gz %s/%s | \grep  -A 4 '# mat44 Obliquity Transformation ::'  > %s_obla2e_mat.1D" % (vrAinput,anatprefix,startdir,nsmprage,prefix))
+	else: sl.append("3dWarp -overwrite -prefix %s -deoblique %s" % (vrAinput,vrAinput))
+
+#Despike and axialize
+if not options.no_despike:
+	sl.append("3dDespike -overwrite -prefix ./%s_vrA%s %s "  % (vrbase,osf,vrAinput))
+	vrAinput = "./%s_vrA%s" % (vrbase,osf)
+if options.axialize: 
+	sl.append("3daxialize -overwrite -prefix ./%s_vrA%s %s" % (vrbase,osf,vrAinput))
+	vrAinput = "./%s_vrA%s" % (vrbase,osf)
+	sl.append("3daxialize  -overwrite -prefix eBbase.nii.gz %s "  % (basevol))
+else: sl.append("3dcalc -a %s  -expr 'a' -prefix eBbase.nii.gz "  % (basevol))
+
+#Set base volume
 if options.align_base!='':
 	if options.align_base.isdigit():
 		basevol = '%s[%s]' % (vrAinput,options.align_base)
@@ -354,16 +375,11 @@ if options.align_base!='':
 		basevol = options.align_base
 else: 
 	basevol = '%s[%s]' % (vrAinput,basebrik)
-logcomment("Calculate and save motion and obliquity parameters, despiking first if not disabled, and separately save and mask the base volume",level=1)
-if not options.no_despike:
-	sl.append("3dDespike -overwrite -prefix ./%s_vrA%s %s "  % (vrbase,osf,vrAinput))
-	vrAinput = "./%s_vrA%s" % (vrbase,osf)
-sl.append("3dvolreg -overwrite -tshift -quintic  -prefix ./%s_vrA%s -base %s -dfile ./%s_vrA.1D -1Dmatrix_save ./%s_vrmat.aff12.1D %s" % \
-		  (vrbase,osf,basevol,vrbase,prefix,vrAinput))
+
+#Compute motion parameters
+sl.append("3dvolreg -overwrite -tshift -quintic  -prefix ./%s_vrA%s -base eBbase.nii.gz -dfile ./%s_vrA.1D -1Dmatrix_save ./%s_vrmat.aff12.1D %s" % \
+		  (vrbase,osf,vrbase,prefix,vrAinput))
 vrAinput = "./%s_vrA%s" % (vrbase,osf)
-if oblique_mode: 
-	if options.anat!='': sl.append("3dWarp -verb -card2oblique %s[0] -overwrite  -newgrid 1.000000 -prefix ./%s_ob.nii.gz %s/%s | \grep  -A 4 '# mat44 Obliquity Transformation ::'  > %s_obla2e_mat.1D" % (vrAinput,anatprefix,startdir,nsmprage,prefix))
-	else: sl.append("3dWarp -overwrite -prefix %s -deoblique %s" % (vrAinput,vrAinput))
 sl.append("1dcat './%s_vrA.1D[1..6]{%s..$}' > motion.1D " % (vrbase,basebrik))
 e2dsin = prefix+datasets[0]+trailing
 
@@ -388,7 +404,9 @@ sl.append("3dcalc -overwrite -a s0v.nii -b ocv_ss.nii.gz -expr 'a*ispositive(a)*
 if options.anat!='':
 	#Copy in anatomical and make sure its in +orig space
 	logcomment("Copy anatomical into ME-ICA directory and process warps",level=1)
-	sl.append("cp %s/%s* ." % (startdir,nsmprage))	
+	sl.append("cp %s/%s* ." % (startdir,nsmprage))
+	if options.axialize:
+		sl.append("3daxialize  -overwrite -prefix %s %s "  % (nsmprage,nsmprage))
 	abmprage = nsmprage
 	refanat = nsmprage
 	if options.space:
@@ -472,6 +490,10 @@ for echo_ii in range(len(datasets)):
 	
 	if oblique_mode and options.anat=="":
 		sl.append("3dWarp -overwrite -deoblique -prefix ./%s_ts+orig ./%s_ts+orig" % (dsin,dsin))
+
+	#Axialize functional dataset
+	if options.axialize:
+		sl.append("3daxialize  -overwrite -prefix ./%s_ts+orig ./%s_ts+orig" % (dsin,dsin))
 
 	sl.append("3drefit -deoblique -TR %s %s_ts+orig" % (options.TR,dsin))
 
