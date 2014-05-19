@@ -346,11 +346,11 @@ for e_ii in range(len(datasets)):
 	if '.nii' in isf: 
 		sl.append("nifti_tool -mod_hdr -mod_field sform_code 1 -mod_field qform_code 1 -infiles ./%s.nii -overwrite" % (  getdsname(e_ii,True)  ))
 isf = '.nii'
-	
-#Assign and write base volume, then axialize
-vrAinput = "./%s%s" % (vrbase,isf)
-
+		
 logcomment("Calculate and save motion and obliquity parameters, despiking first if not disabled, and separately save and mask the base volume",level=1)
+
+#Determine input to volume registration
+vrAinput = "./%s%s" % (vrbase,isf)
 
 #Compute obliquity matrix
 if oblique_mode: 
@@ -364,17 +364,21 @@ if not options.no_despike:
 if options.axialize: 
 	sl.append("3daxialize -overwrite -prefix ./%s_vrA%s %s" % (vrbase,osf,vrAinput))
 	vrAinput = "./%s_vrA%s" % (vrbase,osf)
-	sl.append("3daxialize  -overwrite -prefix eBbase.nii.gz %s "  % (basevol))
-else: sl.append("3dcalc -a %s  -expr 'a' -prefix eBbase.nii.gz "  % (basevol))
 
-#Set base volume
+#Set eBbase
+external_eBbase=False
 if options.align_base!='':
 	if options.align_base.isdigit():
 		basevol = '%s[%s]' % (vrAinput,options.align_base)
 	else:
 		basevol = options.align_base
+		external_eBbase=True
 else: 
 	basevol = '%s[%s]' % (vrAinput,basebrik)
+sl.append("3dcalc -a %s  -expr 'a' -prefix eBbase.nii.gz "  % (basevol) )
+if external_eBbase:
+	if oblique_mode: sl.append("3dWarp -overwrite -deoblique eBbase.nii.gz eBbase.nii.gz")
+	if options.axialize: sl.append("3daxialize -overwrite -prefix eBbase.nii.gz eBbase.nii.gz")
 
 #Compute motion parameters
 sl.append("3dvolreg -overwrite -tshift -quintic  -prefix ./%s_vrA%s -base eBbase.nii.gz -dfile ./%s_vrA.1D -1Dmatrix_save ./%s_vrmat.aff12.1D %s" % \
@@ -399,6 +403,10 @@ sl.append("3dUnifize -prefix ./ocv_uni+orig ocv.nii")
 sl.append("3dSkullStrip -prefix ./ocv_ss.nii.gz -overwrite -input ocv_uni+orig")
 sl.append("3dcalc -overwrite -a t2svm.nii -b ocv_ss.nii.gz -expr 'a*ispositive(a)*step(b)' -prefix t2svm_ss.nii.gz" )
 sl.append("3dcalc -overwrite -a s0v.nii -b ocv_ss.nii.gz -expr 'a*ispositive(a)*step(b)' -prefix s0v_ss.nii.gz" )
+if options.axialize:
+	sl.append("3daxialize -overwrite -prefix t2svm_ss.nii.gz t2svm_ss.nii.gz")
+	sl.append("3daxialize -overwrite -prefix ocv_ss.nii.gz ocv_ss.nii.gz")
+	sl.append("3daxialize -overwrite -prefix s0v_ss.nii.gz s0v_ss.nii.gz")
 
 # Calculate affine anatomical warp if anatomical provided, then combine motion correction and coregistration parameters 
 if options.anat!='':
@@ -495,7 +503,8 @@ for echo_ii in range(len(datasets)):
 	if options.axialize:
 		sl.append("3daxialize  -overwrite -prefix ./%s_ts+orig ./%s_ts+orig" % (dsin,dsin))
 
-	sl.append("3drefit -deoblique -TR %s %s_ts+orig" % (options.TR,dsin))
+	if oblique_mode: sl.append("3drefit -deoblique -TR %s %s_ts+orig" % (options.TR,dsin))
+	else: sl.append("3drefit -TR %s %s_ts+orig" % (options.TR,dsin))
 
 	if echo_ii == 0: 
 		logcomment("Preparing functional masking for this ME-EPI run",2 )
