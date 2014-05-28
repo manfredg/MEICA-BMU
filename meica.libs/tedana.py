@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-__version__="v2.5 beta5"
+__version__="v2.5 beta6"
 welcome_block="""
 # Multi-Echo ICA, Version %s
 #

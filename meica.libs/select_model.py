@@ -1,3 +1,18 @@
+__version__="v2.5 beta6"
+welcome_block="""
+# Multi-Echo ICA, Version %s
+#
+# Kundu, P., Brenowitz, N.D., Voon, V., Worbe, Y., Vertes, P.E., Inati, S.J., Saad, Z.S., 
+# Bandettini, P.A. & Bullmore, E.T. Integrated strategy for improving functional 
+# connectivity mapping using multiecho fMRI. PNAS (2013).
+#
+# Kundu, P., Inati, S.J., Evans, J.W., Luh, W.M. & Bandettini, P.A. Differentiating 
+#   BOLD and non-BOLD signals in fMRI time series using multi-echo EPI. NeuroImage (2011).
+# http://dx.doi.org/10.1016/j.neuroimage.2011.12.028
+#
+# PROCEDURE 2a: Model fitting and component selection routines
+"""
+
 import numpy as np
 
 def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None,full_sel=True,debugout=False):
@@ -248,7 +263,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	Assemble decision table
 	"""
 	d_table_rank = np.vstack([len(nc)-rankvec(Kappas), len(nc)-rankvec(dice_table[:,0]), \
-		 len(nc)-rankvec(tt_table[:,0]), rankvec(countnoise), rankvec(countsigFR2) ]).T
+		 len(nc)-rankvec(tt_table[:,0]), rankvec(countnoise), len(nc)-rankvec(countsigFR2) ]).T
 	d_table_score = d_table_rank.sum(1)
 
 	"""
@@ -315,7 +330,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		candart = ncl[rankvec(varex[ncl])-rankvec(Kappas[ncl])>len(ncl)/EXTEND_FACTOR]
 		midkadd = np.intersect1d(candart,candart[varex[candart]>varex_ub])
 		#Recompute the midk steps on the limited set to clean up the tail
-		d_table_rank = np.vstack([len(ncl)-rankvec(Kappas[ncl]), len(ncl)-rankvec(dice_table[ncl,0]),len(ncl)-rankvec(tt_table[ncl,0]), rankvec(countnoise[ncl]), rankvec(countsigFR2[ncl])]).T
+		d_table_rank = np.vstack([len(ncl)-rankvec(Kappas[ncl]), len(ncl)-rankvec(dice_table[ncl,0]),len(ncl)-rankvec(tt_table[ncl,0]), rankvec(countnoise[ncl]), rankvec(Rhos[ncl]), len(ncl)-rankvec(countsigFR2[ncl])]).T
 		d_table_score = d_table_rank.sum(1)
 		new_good_guess = ncl[Kappas[ncl]>Kappas_elbow]
 		candart = ncl[d_table_score>len(new_good_guess)*d_table_rank.shape[1]]
@@ -327,16 +342,15 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		#Find comps to ignore
 		candart = np.setdiff1d(ncl[d_table_score>len(new_good_guess)*d_table_rank.shape[1]],midk)
 		ignadd = np.intersect1d(candart,candart[varex[candart]>new_varex_lb])
+		ignadd = np.union1d(ignadd,np.intersect1d(ncl[Kappas[ncl]<=Kappas_elbow],ncl[varex[ncl]>new_varex_lb]))
+		ign = np.union1d(ign,ignadd)
 		#Final removal of ultra-high variance stuff
-		new_guess = ncl[Kappas[ncl]>Kappas_elbow]
+		new_guess = ncl[andb([Kappas[ncl]>=Kappas_elbow,Rhos[ncl]<=Rhos_elbow])==2]
 		candart = ncl[d_table_score>len(new_guess)*d_table_rank.shape[1]]
 		midkadd = np.union1d(midkadd,candart[varex[candart]>varex_ub*EXTEND_FACTOR])
 		#Remove of higher variance tail stuff
-		candart = np.setdiff1d(ncl,new_guess)
 		midkadd = np.union1d(midkadd,np.intersect1d(candart,candart[varex[candart]>varex_lb*EXTEND_FACTOR]))
-		ign = np.union1d(ign,ignadd)
 		midk = np.union1d(midk,midkadd)
-		#Create final set
 		ncl = np.setdiff1d(ncl,np.union1d(midk,ign))
 
 	if debug:

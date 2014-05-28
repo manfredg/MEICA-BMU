@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-__version__="v2.5 beta5"
+__version__="v2.5 beta6"
 """
 # Multi-Echo ICA, Version %s
 # See http://dx.doi.org/10.1016/j.neuroimage.2011.12.028

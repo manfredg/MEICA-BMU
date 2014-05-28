@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-__version__="v2.5 beta5"
+__version__="v2.5 beta6"
 welcome_block="""
 # Multi-Echo ICA, Version %s
 #
@@ -267,7 +267,7 @@ else:
 #Misc. command parsing
 if options.mni: options.space='MNI_caez_N27+tlrc'
 if options.qwarp and (options.anat=='' or not options.space):
-	print "*+ Can't specify Qwarp nonlinear coregistration without anatoical and SPACE template!"
+	print "*+ Can't specify Qwarp nonlinear coregistration without anatomical and SPACE template!"
 	sys.exit()
 
 if not options.maskmode in ['func','anat','template']:
@@ -348,15 +348,12 @@ for e_ii in range(len(datasets)):
 isf = '.nii'
 		
 logcomment("Calculate and save motion and obliquity parameters, despiking first if not disabled, and separately save and mask the base volume",level=1)
-
 #Determine input to volume registration
 vrAinput = "./%s%s" % (vrbase,isf)
-
 #Compute obliquity matrix
 if oblique_mode: 
 	if options.anat!='': sl.append("3dWarp -verb -card2oblique %s[0] -overwrite  -newgrid 1.000000 -prefix ./%s_ob.nii.gz %s/%s | \grep  -A 4 '# mat44 Obliquity Transformation ::'  > %s_obla2e_mat.1D" % (vrAinput,anatprefix,startdir,nsmprage,prefix))
 	else: sl.append("3dWarp -overwrite -prefix %s -deoblique %s" % (vrAinput,vrAinput))
-
 #Despike and axialize
 if not options.no_despike:
 	sl.append("3dDespike -overwrite -prefix ./%s_vrA%s %s "  % (vrbase,osf,vrAinput))
@@ -364,7 +361,6 @@ if not options.no_despike:
 if options.axialize: 
 	sl.append("3daxialize -overwrite -prefix ./%s_vrA%s %s" % (vrbase,osf,vrAinput))
 	vrAinput = "./%s_vrA%s" % (vrbase,osf)
-
 #Set eBbase
 external_eBbase=False
 if options.align_base!='':
@@ -379,13 +375,40 @@ sl.append("3dcalc -a %s  -expr 'a' -prefix eBbase.nii.gz "  % (basevol) )
 if external_eBbase:
 	if oblique_mode: sl.append("3dWarp -overwrite -deoblique eBbase.nii.gz eBbase.nii.gz")
 	if options.axialize: sl.append("3daxialize -overwrite -prefix eBbase.nii.gz eBbase.nii.gz")
-
 #Compute motion parameters
 sl.append("3dvolreg -overwrite -tshift -quintic  -prefix ./%s_vrA%s -base eBbase.nii.gz -dfile ./%s_vrA.1D -1Dmatrix_save ./%s_vrmat.aff12.1D %s" % \
 		  (vrbase,osf,vrbase,prefix,vrAinput))
 vrAinput = "./%s_vrA%s" % (vrbase,osf)
 sl.append("1dcat './%s_vrA.1D[1..6]{%s..$}' > motion.1D " % (vrbase,basebrik))
 e2dsin = prefix+datasets[0]+trailing
+
+logcomment("Preliminary preprocessing of functional datasets: despike, tshift, deoblique, and/or axialize",level=1)
+#Do preliminary preproc for this run
+if shorthand_dsin: datasets.sort()
+for echo_ii in range(len(datasets)):
+	#Determine dataset name
+	echo = datasets[echo_ii]
+	indata = getdsname(echo_ii)
+	dsin = 'e'+echo
+	logcomment("Preliminary preprocessing dataset %s of TE=%sms to produce %s_ts+orig" % (indata,str(tes[echo_ii]),dsin) )
+	#Pre-treat datasets: De-spike, RETROICOR in the future?
+	intsname = "%s%s" % (indata,isf)
+	if not options.no_despike:
+		intsname = "./%s_pt.nii.gz" % dsprefix(indata)
+		sl.append("3dDespike -overwrite -prefix %s %s%s" % (intsname,dsprefix(indata),isf))
+	#Time shift datasets
+	if options.tpattern!='':
+		tpat_opt = ' -tpattern %s ' % options.tpattern
+	else:
+		tpat_opt = ''
+	sl.append("3dTshift -heptic %s -prefix ./%s_ts+orig %s" % (tpat_opt,dsin,intsname) )
+	if oblique_mode and options.anat=="":
+		sl.append("3dWarp -overwrite -deoblique -prefix ./%s_ts+orig ./%s_ts+orig" % (dsin,dsin))
+	#Axialize functional dataset
+	if options.axialize:
+		sl.append("3daxialize  -overwrite -prefix ./%s_ts+orig ./%s_ts+orig" % (dsin,dsin))
+	if oblique_mode: sl.append("3drefit -deoblique -TR %s %s_ts+orig" % (options.TR,dsin))
+	else: sl.append("3drefit -TR %s %s_ts+orig" % (options.TR,dsin))
 
 #Compute T2*, S0, and OC volumes from raw data
 logcomment("Prepare T2* and S0 volumes for use in functional masking and (optionally) anatomical-functional coregistration (takes a little while).",level=1)
@@ -394,9 +417,10 @@ dss.sort()
 stackline=""
 for echo_ii in range(len(dss)):
 	echo = datasets[echo_ii]
-	dsin = 'e'+echo+trailing
-	indata = getdsname(echo_ii,True)
-	stackline+=" %s%s[%i..%i]" % (indata,isf,int(basebrik),int(basebrik)+5)
+	dsin = 'e'+echo
+	sl.append("3dAllineate -overwrite -final NN -NN -float -1Dmatrix_apply %s_vrmat.aff12.1D'{%i..%i}' -base eBbase.nii.gz -input %s_ts+orig'[%i..%i]' -prefix %s_vrA.nii.gz" % \
+				(prefix,int(basebrik),int(basebrik)+5,dsin,int(basebrik),int(basebrik)+5,dsin))
+	stackline+=" %s_vrA.nii.gz" % (dsin)
 sl.append("3dZcat -prefix basestack.nii.gz %s" % (stackline))
 sl.append("%s %s -d basestack.nii.gz -e %s" % (sys.executable, '/'.join([meicadir,'meica.libs','t2smap.py']),options.tes))
 sl.append("3dUnifize -prefix ./ocv_uni+orig ocv.nii")
@@ -468,43 +492,20 @@ if options.anat!='':
 	else: tlrc_opt = ""
 	if oblique_mode: oblique_opt = "%s_obla2e_mat.1D" % prefix
 	else: oblique_opt = ""
-	sl.append("cat_matvec -ONELINE  %s %s %s_al_mat.aff12.1D -I  %s_vrmat.aff12.1D  > %s_wmat.aff12.1D" % (tlrc_opt,oblique_opt,anatprefix,prefix,prefix))
+	sl.append("cat_matvec -ONELINE  %s %s %s_al_mat.aff12.1D  > %s_wmat.aff12.1D" % (tlrc_opt,oblique_opt,anatprefix,prefix))
+	sl.append("cat_matvec -ONELINE  %s %s %s_al_mat.aff12.1D -I  %s_vrmat.aff12.1D  > %s_vrwmat.aff12.1D" % (tlrc_opt,oblique_opt,anatprefix,prefix,prefix))
 
-else: sl.append("cp %s_vrmat.aff12.1D %s_wmat.aff12.1D" % (prefix,prefix))
+else: sl.append("cp %s_vrmat.aff12.1D %s_vrwmat.aff12.1D" % (prefix,prefix))
 
 #Preprocess datasets
 if shorthand_dsin: datasets.sort()
-logcomment("Preprocessing functional datasets",level=1)
+logcomment("Extended preprocessing of functional datasets",level=1)
 for echo_ii in range(len(datasets)):
 
 	#Determine dataset name
 	echo = datasets[echo_ii]
 	indata = getdsname(echo_ii)
 	dsin = 'e'+echo
-	logcomment("Preprocessing dataset %s of TE=%sms to produce %s_in.nii.gz" % (indata,str(tes[echo_ii]),dsin),level=2 )
-
-	#Pre-treat datasets: De-spike, RETROICOR in the future?
-	intsname = "%s%s" % (indata,isf)
-	if not options.no_despike:
-		intsname = "./%s_pt.nii.gz" % dsprefix(indata)
-		sl.append("3dDespike -overwrite -prefix %s %s%s" % (intsname,dsprefix(indata),isf))
-
-	#Time shift datasets
-	if options.tpattern!='':
-		tpat_opt = ' -tpattern %s ' % options.tpattern
-	else:
-		tpat_opt = ''
-	sl.append("3dTshift -heptic %s -prefix ./%s_ts+orig %s" % (tpat_opt,dsin,intsname) )
-	
-	if oblique_mode and options.anat=="":
-		sl.append("3dWarp -overwrite -deoblique -prefix ./%s_ts+orig ./%s_ts+orig" % (dsin,dsin))
-
-	#Axialize functional dataset
-	if options.axialize:
-		sl.append("3daxialize  -overwrite -prefix ./%s_ts+orig ./%s_ts+orig" % (dsin,dsin))
-
-	if oblique_mode: sl.append("3drefit -deoblique -TR %s %s_ts+orig" % (options.TR,dsin))
-	else: sl.append("3drefit -TR %s %s_ts+orig" % (options.TR,dsin))
 
 	if echo_ii == 0: 
 		logcomment("Preparing functional masking for this ME-EPI run",2 )
@@ -514,25 +515,25 @@ for echo_ii in range(len(datasets)):
 		sl.append("voxsize=`ccalc $(3dinfo -voxvol eBvrmask.nii.gz)**.33`") #Set voxel size
 		#Create base mask
 		if options.anat and options.space and options.qwarp: 
-			sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D{%s}' %s %s -source eBvrmask.nii.gz -interp %s -prefix ./eBvrmask.nii.gz " % \
-			(startdir,dsprefix(nlatnsmprage),prefix,basebrik,almaster,qwfres,'NN'))
+			sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D' %s %s -source eBvrmask.nii.gz -interp %s -prefix ./eBvrmask.nii.gz " % \
+			(startdir,dsprefix(nlatnsmprage),prefix,almaster,qwfres,'NN'))
 			if options.t2salign or options.maskmode!='func':
-				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D{%s}' %s %s -source t2svm_ss.nii.gz -interp %s -prefix ./t2svm_ss_vr.nii.gz " % \
-				(startdir,dsprefix(nlatnsmprage),prefix,basebrik,almaster,qwfres,'NN'))
-				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D{%s}' %s %s -source ocv_uni+orig -interp %s -prefix ./ocv_uni_vr.nii.gz " % \
-				(startdir,dsprefix(nlatnsmprage),prefix,basebrik,almaster,qwfres,'NN'))
-				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D{%s}' %s %s -source s0v_ss.nii.gz -interp %s -prefix ./s0v_ss_vr.nii.gz " % \
-				(startdir,dsprefix(nlatnsmprage),prefix,basebrik,almaster,qwfres,'NN'))
+				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D' %s %s -source t2svm_ss.nii.gz -interp %s -prefix ./t2svm_ss_vr.nii.gz " % \
+				(startdir,dsprefix(nlatnsmprage),prefix,almaster,qwfres,'NN'))
+				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D' %s %s -source ocv_uni+orig -interp %s -prefix ./ocv_uni_vr.nii.gz " % \
+				(startdir,dsprefix(nlatnsmprage),prefix,almaster,qwfres,'NN'))
+				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D' %s %s -source s0v_ss.nii.gz -interp %s -prefix ./s0v_ss_vr.nii.gz " % \
+				(startdir,dsprefix(nlatnsmprage),prefix,almaster,qwfres,'NN'))
 		elif options.anat:
-			sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base eBvrmask.nii.gz -input eBvrmask.nii.gz -prefix ./eBvrmask.nii.gz %s %s" % \
-			('NN','NN',prefix,basebrik,almaster,alfres))
+			sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base eBvrmask.nii.gz -input eBvrmask.nii.gz -prefix ./eBvrmask.nii.gz %s %s" % \
+			('NN','NN',prefix,almaster,alfres))
 			if options.t2salign or options.maskmode!='func':
-				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base eBvrmask.nii.gz -input t2svm_ss.nii.gz -prefix ./t2svm_ss_vr.nii.gz %s %s" % \
-				('NN','NN',prefix,basebrik,almaster,alfres))
-				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base eBvrmask.nii.gz -input ocv_uni+orig -prefix ./ocv_uni_vr.nii.gz %s %s" % \
-				('NN','NN',prefix,basebrik,almaster,alfres))
-				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D{%s} -base eBvrmask.nii.gz -input s0v_ss.nii.gz -prefix ./s0v_ss_vr.nii.gz %s %s" % \
-				('NN','NN',prefix,basebrik,almaster,alfres))
+				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base eBvrmask.nii.gz -input t2svm_ss.nii.gz -prefix ./t2svm_ss_vr.nii.gz %s %s" % \
+				('NN','NN',prefix,almaster,alfres))
+				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base eBvrmask.nii.gz -input ocv_uni+orig -prefix ./ocv_uni_vr.nii.gz %s %s" % \
+				('NN','NN',prefix,almaster,alfres))
+				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base eBvrmask.nii.gz -input s0v_ss.nii.gz -prefix ./s0v_ss_vr.nii.gz %s %s" % \
+				('NN','NN',prefix,almaster,alfres))
 
 		if options.anat and options.maskmode != 'func':
 			if options.space and options.maskmode == 'template':
@@ -556,10 +557,11 @@ for echo_ii in range(len(datasets)):
 			sl.append("3dAutobox -overwrite -prefix eBvrmask%s eBvrmask%s" % (osf,osf) )
 		sl.append("3dcalc -float -a eBvrmask.nii.gz -expr 'notzero(a)' -overwrite -prefix eBvrmask.nii.gz")
 
-	logcomment("Apply combined normalization/co-registration/motion correction parameter set")
-	if options.qwarp: sl.append("3dNwarpApply -nwarp '%s/%s_WARP.nii.gz' -affter %s_wmat.aff12.1D -master eBvrmask.nii.gz -source %s_ts+orig -interp %s -prefix ./%s_vr%s " % \
+	#logcomment("Extended preprocessing dataset %s of TE=%sms to produce %s_in.nii.gz" % (indata,str(tes[echo_ii]),dsin),level=2 )
+	logcomment("Apply combined normalization/co-registration/motion correction parameter set to %s_ts+orig" % dsin)
+	if options.qwarp: sl.append("3dNwarpApply -nwarp '%s/%s_WARP.nii.gz' -affter %s_vrwmat.aff12.1D -master eBvrmask.nii.gz -source %s_ts+orig -interp %s -prefix ./%s_vr%s " % \
 			(startdir,dsprefix(nlatnsmprage),prefix,dsin,align_interp,dsin,osf))
-	else: sl.append("3dAllineate -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base eBvrmask%s -input  %s_ts+orig -prefix ./%s_vr%s" % \
+	else: sl.append("3dAllineate -final %s -%s -float -1Dmatrix_apply %s_vrwmat.aff12.1D -base eBvrmask%s -input  %s_ts+orig -prefix ./%s_vr%s" % \
 		(align_interp,align_interp,prefix,osf,dsin,dsin,osf))
 	
 	if options.FWHM=='0mm': 
