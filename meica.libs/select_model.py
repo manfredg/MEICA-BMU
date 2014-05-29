@@ -351,6 +351,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		#Remove of higher variance tail stuff
 		midkadd = np.union1d(midkadd,np.intersect1d(candart,candart[varex[candart]>varex_lb*EXTEND_FACTOR]))
 		midk = np.union1d(midk,midkadd)
+		ign = np.setdiff1d(ign,midk)
 		ncl = np.setdiff1d(ncl,np.union1d(midk,ign))
 
 	if debug:

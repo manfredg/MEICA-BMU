@@ -553,8 +553,12 @@ for echo_ii in range(len(datasets)):
 			sl.append("3dresample -overwrite -master %s %s -input eBvrmask.nii.gz -prefix eBvrmask.nii.gz" % (abmprage,resstring))
 
 		if options.anat=='':
-			logcomment("Trim empty space off of mask dataset")
+			logcomment("Trim empty space off of mask dataset and/or resample")
 			sl.append("3dAutobox -overwrite -prefix eBvrmask%s eBvrmask%s" % (osf,osf) )
+			if options.fres: 
+				resstring = "-dxyz %s %s %s" % (options.fres,options.fres,options.fres)
+				sl.append("3dresample -overwrite -master eBvrmask.nii.gz %s -input eBvrmask.nii.gz -prefix eBvrmask.nii.gz" % (resstring))
+		
 		sl.append("3dcalc -float -a eBvrmask.nii.gz -expr 'notzero(a)' -overwrite -prefix eBvrmask.nii.gz")
 
 	#logcomment("Extended preprocessing dataset %s of TE=%sms to produce %s_in.nii.gz" % (indata,str(tes[echo_ii]),dsin),level=2 )
