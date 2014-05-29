@@ -258,7 +258,7 @@ else:
 	tr=float(os.popen('3dinfo -tr %s' % (getdsname(0))).readlines()[0].strip())
 	options.TR=str(tr)
 if 'v' in str(options.basetime): 
-	basebrik = float(options.basetime.strip('v'))
+	basebrik = int(options.basetime.strip('v'))
 else:
 	timetoclip=0
 	timetoclip = float(options.basetime.strip('s'))
