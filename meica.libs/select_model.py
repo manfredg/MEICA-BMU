@@ -344,11 +344,9 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		ignadd = np.intersect1d(candart,candart[varex[candart]>new_varex_lb])
 		ignadd = np.union1d(ignadd,np.intersect1d(ncl[Kappas[ncl]<=Kappas_elbow],ncl[varex[ncl]>new_varex_lb]))
 		ign = np.union1d(ign,ignadd)
-		#Final removal of ultra-high variance stuff
-		new_guess = ncl[andb([Kappas[ncl]>=Kappas_elbow,Rhos[ncl]<=Rhos_elbow])==2]
+		#Removal of high variance tail stuff
+		new_guess = ncl[Kappas[ncl]>=Kappas_elbow]
 		candart = ncl[d_table_score>len(new_guess)*d_table_rank.shape[1]]
-		midkadd = np.union1d(midkadd,candart[varex[candart]>varex_ub*EXTEND_FACTOR])
-		#Remove of higher variance tail stuff
 		midkadd = np.union1d(midkadd,np.intersect1d(candart,candart[varex[candart]>varex_lb*EXTEND_FACTOR]))
 		midk = np.union1d(midk,midkadd)
 		ign = np.setdiff1d(ign,midk)
