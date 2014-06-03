@@ -292,7 +292,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	Rhos_lim = np.array(sorted(Rhos[ncls])[::-1])
 	Rhos_sorted = np.array(sorted(Rhos)[::-1])
 	Kappas_elbow = min(Kappas_lim[getelbow(Kappas_lim)],Kappas[getelbow(Kappas)])
-	Rhos_elbow = min([Rhos_lim[getelbow(Rhos_lim)]  , Rhos_sorted[getelbow(Rhos_sorted)]])
+	Rhos_elbow = np.median([Rhos_lim[getelbow(Rhos_lim)]  , Rhos_sorted[getelbow(Rhos_sorted)], getfbounds(ne)[0]])
 	good_guess = ncls[andb([Kappas[ncls]>=Kappas_elbow, Rhos[ncls]<Rhos_elbow, dice_table[ncls,0]>EXTEND_FACTOR*dice_table[ncls,1]])==3]
 	varex_lb = scoreatpercentile(varex[good_guess],LOW_PERC )
 	varex_ub = scoreatpercentile(varex[good_guess],HIGH_PERC)
