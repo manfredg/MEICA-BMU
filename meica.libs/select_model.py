@@ -258,6 +258,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		signal_FR2_Z  = np.log10(np.unique(F_R2_maps[Z_clmaps[:,ii]==1,ii]))
 		counts_FR2_Z[ii,:] = [len(signal_FR2_Z),len(noise_FR2_Z)]
 		tt_table[ii,:2] = stats.ttest_ind(signal_FR2_Z,noise_FR2_Z,equal_var=False)
+	tt_table[np.isnan(tt_table)]=0
 	
 	"""
 	Assemble decision table
@@ -289,8 +290,9 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	for nn in range(3): ncls = ncls[1:][(varex[ncls][1:]-varex[ncls][:-1])<varex_ub_p] #Step 2a
 	Kappas_lim = Kappas[Kappas<getfbounds(ne)[-1]]
 	Rhos_lim = np.array(sorted(Rhos[ncls])[::-1])
+	Rhos_sorted = np.array(sorted(Rhos)[::-1])
 	Kappas_elbow = min(Kappas_lim[getelbow(Kappas_lim)],Kappas[getelbow(Kappas)])
-	Rhos_elbow = min(Rhos_lim[getelbow(Rhos_lim)]  , getfbounds(ne)[1])
+	Rhos_elbow = np.median([Rhos_lim[getelbow(Rhos_lim)]  , Rhos_sorted[getelbow(Rhos_sorted)], getfbounds(ne)[0]])
 	good_guess = ncls[andb([Kappas[ncls]>=Kappas_elbow, Rhos[ncls]<Rhos_elbow, dice_table[ncls,0]>EXTEND_FACTOR*dice_table[ncls,1]])==3]
 	varex_lb = scoreatpercentile(varex[good_guess],LOW_PERC )
 	varex_ub = scoreatpercentile(varex[good_guess],HIGH_PERC)
@@ -326,31 +328,26 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	Step 5: Scrub the set
 	"""
 	if len(ncl)>len(good_guess):
-		#Get rid of comps with very disproportionate Kappa vs varex
-		candart = ncl[rankvec(varex[ncl])-rankvec(Kappas[ncl])>len(ncl)/EXTEND_FACTOR]
-		midkadd = np.intersect1d(candart,candart[varex[candart]>varex_ub])
 		#Recompute the midk steps on the limited set to clean up the tail
 		d_table_rank = np.vstack([len(ncl)-rankvec(Kappas[ncl]), len(ncl)-rankvec(dice_table[ncl,0]),len(ncl)-rankvec(tt_table[ncl,0]), rankvec(countnoise[ncl]), rankvec(Rhos[ncl]), len(ncl)-rankvec(countsigFR2[ncl])]).T
 		d_table_score = d_table_rank.sum(1)
-		new_good_guess = ncl[Kappas[ncl]>Kappas_elbow]
-		candart = ncl[d_table_score>len(new_good_guess)*d_table_rank.shape[1]]
-		new_varex_ub = scoreatpercentile(varex[ncl[:len(new_good_guess)]],HIGH_PERC)
-		new_varex_lb = scoreatpercentile(varex[ncl[:len(new_good_guess)]],LOW_PERC)
-		candart = np.intersect1d(candart,ncl[varex[ncl]>new_varex_ub])
-		midkadd = np.union1d(midkadd,candart)
-		midk = np.union1d(midk,midkadd)
-		#Find comps to ignore
-		candart = np.setdiff1d(ncl[d_table_score>len(new_good_guess)*d_table_rank.shape[1]],midk)
-		ignadd = np.intersect1d(candart,candart[varex[candart]>new_varex_lb])
-		ignadd = np.union1d(ignadd,np.intersect1d(ncl[Kappas[ncl]<=Kappas_elbow],ncl[varex[ncl]>new_varex_lb]))
-		ign = np.union1d(ign,ignadd)
-		#Removal of high variance tail stuff
-		new_guess = ncl[Kappas[ncl]>=Kappas_elbow]
-		candart = ncl[d_table_score>len(new_guess)*d_table_rank.shape[1]]
+		num_acc_guess = np.mean([np.sum(andb([Kappas[ncl]>Kappas_elbow,Rhos[ncl]<Rhos_elbow])==2), np.sum(Kappas[ncl]>Kappas_elbow)])
+		candart = ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]*HIGH_PERC/100.]
+		new_varex_ub = scoreatpercentile(varex[ncl[:num_acc_guess]],HIGH_PERC)
+		new_varex_lb = scoreatpercentile(varex[ncl[:num_acc_guess]],LOW_PERC)
+		midkadd = np.union1d(midkadd,np.intersect1d(candart,candart[varex[candart]>new_varex_ub]))
 		midkadd = np.union1d(midkadd,np.intersect1d(candart,candart[varex[candart]>varex_lb*EXTEND_FACTOR]))
 		midk = np.union1d(midk,midkadd)
-		ign = np.setdiff1d(ign,midk)
+		#Find comps to ignore
+		candart = np.setdiff1d(ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]],midk)
+		ignadd = np.intersect1d(candart,candart[varex[candart]>new_varex_lb])
+		ignadd = np.union1d(ignadd,np.intersect1d(ncl[Kappas[ncl]<=Kappas_elbow],ncl[varex[ncl]>new_varex_lb]))
+		ign = np.setdiff1d(np.union1d(ign,ignadd),midk)
 		ncl = np.setdiff1d(ncl,np.union1d(midk,ign))
+		#Get rid of comps with very disproportionate Kappa vs varex
+		candartB = ncl[rankvec(varex[ncl])-rankvec(Kappas[ncl])>len(ncl)/EXTEND_FACTOR]
+		midk = np.union1d(midk,np.intersect1d(candartB,candartB[varex[candartB]>varex_ub]))
+		ncl = np.setdiff1d(ncl,midk)
 
 	if debug:
 		import ipdb
