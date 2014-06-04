@@ -294,6 +294,8 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	Kappas_elbow = min(Kappas_lim[getelbow(Kappas_lim)],Kappas[getelbow(Kappas)])
 	Rhos_elbow = np.median([Rhos_lim[getelbow(Rhos_lim)]  , Rhos_sorted[getelbow(Rhos_sorted)], getfbounds(ne)[0]])
 	good_guess = ncls[andb([Kappas[ncls]>=Kappas_elbow, Rhos[ncls]<Rhos_elbow])==2]
+	Kappa_rate = (max(Kappas[good_guess])-min(Kappas[good_guess]))/(max(varex[good_guess])-min(varex[good_guess]))
+	Kappa_ratios = Kappa_rate*varex/Kappas
 	varex_lb = scoreatpercentile(varex[good_guess],LOW_PERC )
 	varex_ub = scoreatpercentile(varex[good_guess],HIGH_PERC)
 
@@ -332,7 +334,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		d_table_rank = np.vstack([len(ncl)-rankvec(Kappas[ncl]), len(ncl)-rankvec(dice_table[ncl,0]),len(ncl)-rankvec(tt_table[ncl,0]), rankvec(countnoise[ncl]), rankvec(Rhos[ncl]), len(ncl)-rankvec(countsigFR2[ncl])]).T
 		d_table_score = d_table_rank.sum(1)
 		num_acc_guess = np.mean([np.sum(andb([Kappas[ncl]>Kappas_elbow,Rhos[ncl]<Rhos_elbow])==2), np.sum(Kappas[ncl]>Kappas_elbow)])
-		candartA = ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]/EXTEND_FACTOR*2]
+		candartA = np.intersect1d(ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]/EXTEND_FACTOR],ncl[Kappa_ratios[ncl]>EXTEND_FACTOR*2])
 		midkadd = np.union1d(midkadd,np.intersect1d(candartA,candartA[varex[candartA]>varex_ub*EXTEND_FACTOR]))
 		candartB = ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]*HIGH_PERC/100.]
 		midkadd = np.union1d(midkadd,np.intersect1d(candartB,candartB[varex[candartB]>varex_lb*EXTEND_FACTOR]))
@@ -346,7 +348,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		ncl = np.setdiff1d(ncl,np.union1d(midk,ign))
 		#Get rid of comps with very disproportionate Kappa vs varex
 		candartC = ncl[rankvec(varex[ncl])-rankvec(Kappas[ncl])>len(ncl)/EXTEND_FACTOR]
-		midk = np.union1d(midk,np.intersect1d(candartC,candartC[varex[candartC]>varex_ub]))
+		midk = np.union1d(midk,np.intersect1d(candartC,ncl[Kappa_ratios[ncl]>EXTEND_FACTOR]))
 		ncl = np.setdiff1d(ncl,midk)
 
 	if debug:
