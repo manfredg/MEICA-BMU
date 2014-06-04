@@ -336,7 +336,7 @@ if options.anat != '':
 	if not options.no_skullstrip: 
 		sl.append("if [ ! -e %s_ns.nii.gz ]; then 3dUnifize -overwrite -prefix %s_u.nii.gz %s/%s; 3dSkullStrip  -shrink_fac_bot_lim 0.3 -orig_vol -overwrite -prefix %s_ns.nii.gz -input %s_u.nii.gz; 3dAutobox -overwrite -prefix %s_ns.nii.gz %s_ns.nii.gz; fi" % (pathanatprefix,pathanatprefix,startdir,nsmprage,pathanatprefix,pathanatprefix,pathanatprefix,pathanatprefix))
 		nsmprage="%s_ns.nii.gz" % (anatprefix)
-
+	
 # Copy in functional datasets as NIFTI (if not in NIFTI already), calculate rigid body alignment
 vrbase=getdsname(0,True)
 logcomment("Copy in functional datasets, reset NIFTI tags as needed", level=1)
@@ -492,7 +492,7 @@ if options.anat!='':
 	else: tlrc_opt = ""
 	if oblique_mode: oblique_opt = "%s_obla2e_mat.1D" % prefix
 	else: oblique_opt = ""
-	sl.append("cat_matvec -ONELINE  %s %s %s_al_mat.aff12.1D  > %s_wmat.aff12.1D" % (tlrc_opt,oblique_opt,anatprefix,prefix))
+	sl.append("cat_matvec -ONELINE  %s %s %s_al_mat.aff12.1D -I > %s_wmat.aff12.1D" % (tlrc_opt,oblique_opt,anatprefix,prefix))
 	sl.append("cat_matvec -ONELINE  %s %s %s_al_mat.aff12.1D -I  %s_vrmat.aff12.1D  > %s_vrwmat.aff12.1D" % (tlrc_opt,oblique_opt,anatprefix,prefix,prefix))
 
 else: sl.append("cp %s_vrmat.aff12.1D %s_vrwmat.aff12.1D" % (prefix,prefix))
