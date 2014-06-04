@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-__version__="v2.5 beta6"
+__version__="v2.5 beta8"
 welcome_block="""
 # Multi-Echo ICA, Version %s
 #
@@ -140,13 +140,14 @@ extopts=OptionGroup(parser,"Additional processing options")
 extopts.add_option('',"--qwarp",dest='qwarp',action='store_true',help="Nonlinear anatomical normalization to MNI (or --space template) using 3dQWarp, after affine",default=False)
 extopts.add_option('',"--fres",dest='fres',help="Specify functional voxel dim. in mm (iso.) for resampling during preprocessing. Default none. ex: --fres=2.5", default=False)
 extopts.add_option('',"--space",dest='space',help="Path to specific standard space template for affine anatomical normalization",default=False)
-extopts.add_option('',"--no_skullstrip",action="store_true",dest='no_skullstrip',help="Anatomical is already skullstripped (if -a provided)",default=False)
+extopts.add_option('',"--no_skullstrip",action="store_true",dest='no_skullstrip',help="Anatomical is already intensity-normalized and skull-stripped (if -a provided)",default=False)
 extopts.add_option('',"--no_despike",action="store_true",dest='no_despike',help="Do not de-spike functional data. Default is to de-spike, recommended.",default=False)
 extopts.add_option('',"--no_axialize",action="store_true",dest='no_axialize',help="Do not re-write dataset in axial-first order. Default is to axialize, recommended.",default=False)
-extopts.add_option('',"--maskmode",dest='maskmode',help="Mask functional with help from anatomical or standard space images: use 'anat' or 'template' ",default='func')
+extopts.add_option('',"--mask_mode",dest='mask_mode',help="Mask functional with help from anatomical or standard space images: use 'anat' or 'template' ",default='func')
 extopts.add_option('',"--coreg_mode",dest='coreg_mode',help="Coregistration with Local Pearson and T2* weights (default), or use align_epi_anat.py (edge method): use 'lp-t2s' or 'aea'",default='lp-t2s')
 extopts.add_option('',"--smooth",dest='FWHM',help="Data FWHM smoothing (3dBlurInMask). Default off. ex: -smooth 3mm ",default='0mm')
 extopts.add_option('',"--align_base",dest='align_base',help="Explicitly specify base dataset for volume registration",default='')
+#extopts.add_option('',"--uni_when",dest='uni_when',help="When to unifize anatomical relative to skullstrip: pre,post,never. Default pre.",default='pre')
 extopts.add_option('',"--TR",dest='TR',help="The TR. Default read from input dataset header",default='')
 extopts.add_option('',"--tpattern",dest='tpattern',help="Slice timing (i.e. alt+z, see 3dTshift -help). Default from header. (N.B. This is important!)",default='')
 extopts.add_option('',"--daw",dest='daw',help="Dimensionality increase weight. Default 10. For very low tSNR data, use -1",default='10')
@@ -270,8 +271,8 @@ if options.qwarp and (options.anat=='' or not options.space):
 	print "*+ Can't specify Qwarp nonlinear coregistration without anatomical and SPACE template!"
 	sys.exit()
 
-if not options.maskmode in ['func','anat','template']:
-	print "*+ Mask mode option '%s' is not recognized!" % options.maskmode
+if not options.mask_mode in ['func','anat','template']:
+	print "*+ Mask mode option '%s' is not recognized!" % options.mask_mode
 	sys.exit()
 
 #Parse alignment options
@@ -303,7 +304,7 @@ if options.fres:
 else: 
 	if options.qwarp: qwfres="-dxyz ${voxsize}" #See section called "Preparing functional masking for this ME-EPI run"
 	else: alfres="-mast_dxyz ${voxsize}"
-if options.anat=='' and options.maskmode!='func':
+if options.anat=='' and options.mask_mode!='func':
 	print "*+ Can't do anatomical-based functional masking without an anatomical!"
 	sys.exit()
 
@@ -451,7 +452,7 @@ if options.anat!='':
 		atnsmprage = "%s_at.nii.gz" % (dsprefix(nsmprage))
 		if not dssuffix(nsmprage).__contains__('nii'): sl.append("3dcalc -float -a %s -expr 'a' -prefix %s.nii.gz" % (nsmprage,dsprefix(nsmprage)))
 		logcomment("If can't find affine-warped anatomical, copy native anatomical here, compute warps (takes a while) and save in start dir. ; otherwise link in existing files")
-		sl.append("if [ ! -e %s/%s ]; then \@auto_tlrc -no_ss -base ${templateloc}/%s -input %s.nii.gz -suffix _at" % (startdir,atnsmprage,options.space,dsprefix(nsmprage)))
+		sl.append("if [ ! -e %s/%s ]; then \@auto_tlrc -no_ss -init_xform AUTO_CENTER -base ${templateloc}/%s -input %s.nii.gz -suffix _at" % (startdir,atnsmprage,options.space,dsprefix(nsmprage)))
 		sl.append("cp %s.nii %s" % (dsprefix(atnsmprage),startdir))
 		sl.append("gzip -f %s/%s.nii" % (startdir,dsprefix(atnsmprage)))
 		sl.append("else ln -s %s/%s ." % (startdir,atnsmprage))
@@ -517,7 +518,7 @@ for echo_ii in range(len(datasets)):
 		if options.anat and options.space and options.qwarp: 
 			sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D' %s %s -source eBvrmask.nii.gz -interp %s -prefix ./eBvrmask.nii.gz " % \
 			(startdir,dsprefix(nlatnsmprage),prefix,almaster,qwfres,'NN'))
-			if options.t2salign or options.maskmode!='func':
+			if options.t2salign or options.mask_mode!='func':
 				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D' %s %s -source t2svm_ss.nii.gz -interp %s -prefix ./t2svm_ss_vr.nii.gz " % \
 				(startdir,dsprefix(nlatnsmprage),prefix,almaster,qwfres,'NN'))
 				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D' %s %s -source ocv_uni+orig -interp %s -prefix ./ocv_uni_vr.nii.gz " % \
@@ -527,7 +528,7 @@ for echo_ii in range(len(datasets)):
 		elif options.anat:
 			sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base eBvrmask.nii.gz -input eBvrmask.nii.gz -prefix ./eBvrmask.nii.gz %s %s" % \
 			('NN','NN',prefix,almaster,alfres))
-			if options.t2salign or options.maskmode!='func':
+			if options.t2salign or options.mask_mode!='func':
 				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base eBvrmask.nii.gz -input t2svm_ss.nii.gz -prefix ./t2svm_ss_vr.nii.gz %s %s" % \
 				('NN','NN',prefix,almaster,alfres))
 				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base eBvrmask.nii.gz -input ocv_uni+orig -prefix ./ocv_uni_vr.nii.gz %s %s" % \
@@ -535,11 +536,11 @@ for echo_ii in range(len(datasets)):
 				sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base eBvrmask.nii.gz -input s0v_ss.nii.gz -prefix ./s0v_ss_vr.nii.gz %s %s" % \
 				('NN','NN',prefix,almaster,alfres))
 
-		if options.anat and options.maskmode != 'func':
-			if options.space and options.maskmode == 'template':
+		if options.anat and options.mask_mode != 'func':
+			if options.space and options.mask_mode == 'template':
 				sl.append("3dfractionize -template eBvrmask.nii.gz -input abtemplate.nii.gz -prefix ./anatmask_epi.nii.gz -clip 1")
 				logcomment("Preparing functional mask using information from standard space template (takes a little while)")
-			if options.maskmode == 'anat':
+			if options.mask_mode == 'anat':
 				sl.append("3dfractionize -template eBvrmask.nii.gz -input %s -prefix ./anatmask_epi.nii.gz -clip 0.5" % (refanat) )
 				logcomment("Preparing functional mask using information from anatomical (takes a little while)")
 			sl.append("3dBrickStat -mask eBvrmask.nii.gz -percentile 50 1 50 t2svm_ss_vr.nii.gz > t2s_med.1D")

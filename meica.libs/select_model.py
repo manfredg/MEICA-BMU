@@ -1,4 +1,4 @@
-__version__="v2.5 beta6"
+__version__="v2.5 beta8"
 welcome_block="""
 # Multi-Echo ICA, Version %s
 #
@@ -226,6 +226,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	LOW_PERC=25
 	HIGH_PERC=90
 	EXTEND_FACTOR=2
+	RESTRICT_FACTOR=2
 
 	"""
 	Do some tallies for no. of significant voxels
@@ -334,7 +335,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		d_table_rank = np.vstack([len(ncl)-rankvec(Kappas[ncl]), len(ncl)-rankvec(dice_table[ncl,0]),len(ncl)-rankvec(tt_table[ncl,0]), rankvec(countnoise[ncl]), rankvec(Rhos[ncl]), len(ncl)-rankvec(countsigFR2[ncl])]).T
 		d_table_score = d_table_rank.sum(1)
 		num_acc_guess = np.mean([np.sum(andb([Kappas[ncl]>Kappas_elbow,Rhos[ncl]<Rhos_elbow])==2), np.sum(Kappas[ncl]>Kappas_elbow)])
-		candartA = np.intersect1d(ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]/EXTEND_FACTOR],ncl[Kappa_ratios[ncl]>EXTEND_FACTOR*2])
+		candartA = np.intersect1d(ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]/RESTRICT_FACTOR],ncl[Kappa_ratios[ncl]>EXTEND_FACTOR*2])
 		midkadd = np.union1d(midkadd,np.intersect1d(candartA,candartA[varex[candartA]>varex_ub*EXTEND_FACTOR]))
 		candartB = ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]*HIGH_PERC/100.]
 		midkadd = np.union1d(midkadd,np.intersect1d(candartB,candartB[varex[candartB]>varex_lb*EXTEND_FACTOR]))
@@ -347,8 +348,8 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		ign = np.setdiff1d(np.union1d(ign,ignadd),midk)
 		ncl = np.setdiff1d(ncl,np.union1d(midk,ign))
 		#Get rid of comps with very disproportionate Kappa vs varex
-		candartC = ncl[rankvec(varex[ncl])-rankvec(Kappas[ncl])>len(ncl)/EXTEND_FACTOR]
-		midk = np.union1d(midk,np.intersect1d(candartC,ncl[Kappa_ratios[ncl]>EXTEND_FACTOR]))
+		candartC = ncl[rankvec(varex[ncl])-rankvec(Kappas[ncl])>len(ncl)/RESTRICT_FACTOR]
+		midk = np.union1d(midk,np.intersect1d(candartC,ncl[Kappa_ratios[ncl]>RESTRICT_FACTOR]))
 		ncl = np.setdiff1d(ncl,midk)
 
 	if debug:
