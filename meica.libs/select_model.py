@@ -293,7 +293,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	Rhos_sorted = np.array(sorted(Rhos)[::-1])
 	Kappas_elbow = min(Kappas_lim[getelbow(Kappas_lim)],Kappas[getelbow(Kappas)])
 	Rhos_elbow = np.median([Rhos_lim[getelbow(Rhos_lim)]  , Rhos_sorted[getelbow(Rhos_sorted)], getfbounds(ne)[0]])
-	good_guess = ncls[andb([Kappas[ncls]>=Kappas_elbow, Rhos[ncls]<Rhos_elbow, dice_table[ncls,0]>EXTEND_FACTOR*dice_table[ncls,1]])==3]
+	good_guess = ncls[andb([Kappas[ncls]>=Kappas_elbow, Rhos[ncls]<Rhos_elbow])==2]
 	varex_lb = scoreatpercentile(varex[good_guess],LOW_PERC )
 	varex_ub = scoreatpercentile(varex[good_guess],HIGH_PERC)
 
@@ -332,7 +332,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		d_table_rank = np.vstack([len(ncl)-rankvec(Kappas[ncl]), len(ncl)-rankvec(dice_table[ncl,0]),len(ncl)-rankvec(tt_table[ncl,0]), rankvec(countnoise[ncl]), rankvec(Rhos[ncl]), len(ncl)-rankvec(countsigFR2[ncl])]).T
 		d_table_score = d_table_rank.sum(1)
 		num_acc_guess = np.mean([np.sum(andb([Kappas[ncl]>Kappas_elbow,Rhos[ncl]<Rhos_elbow])==2), np.sum(Kappas[ncl]>Kappas_elbow)])
-		candartA = ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]/EXTEND_FACTOR]
+		candartA = ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]/EXTEND_FACTOR*2]
 		midkadd = np.union1d(midkadd,np.intersect1d(candartA,candartA[varex[candartA]>varex_ub*EXTEND_FACTOR]))
 		candartB = ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]*HIGH_PERC/100.]
 		midkadd = np.union1d(midkadd,np.intersect1d(candartB,candartB[varex[candartB]>varex_lb*EXTEND_FACTOR]))
