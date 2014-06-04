@@ -332,21 +332,21 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		d_table_rank = np.vstack([len(ncl)-rankvec(Kappas[ncl]), len(ncl)-rankvec(dice_table[ncl,0]),len(ncl)-rankvec(tt_table[ncl,0]), rankvec(countnoise[ncl]), rankvec(Rhos[ncl]), len(ncl)-rankvec(countsigFR2[ncl])]).T
 		d_table_score = d_table_rank.sum(1)
 		num_acc_guess = np.mean([np.sum(andb([Kappas[ncl]>Kappas_elbow,Rhos[ncl]<Rhos_elbow])==2), np.sum(Kappas[ncl]>Kappas_elbow)])
-		candart = ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]*HIGH_PERC/100.]
-		new_varex_ub = scoreatpercentile(varex[ncl[:num_acc_guess]],HIGH_PERC)
-		new_varex_lb = scoreatpercentile(varex[ncl[:num_acc_guess]],LOW_PERC)
-		midkadd = np.union1d(midkadd,np.intersect1d(candart,candart[varex[candart]>new_varex_ub]))
-		midkadd = np.union1d(midkadd,np.intersect1d(candart,candart[varex[candart]>varex_lb*EXTEND_FACTOR]))
+		candartA = ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]/EXTEND_FACTOR]
+		midkadd = np.union1d(midkadd,np.intersect1d(candartA,candartA[varex[candartA]>varex_ub*EXTEND_FACTOR]))
+		candartB = ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]*HIGH_PERC/100.]
+		midkadd = np.union1d(midkadd,np.intersect1d(candartB,candartB[varex[candartB]>varex_lb*EXTEND_FACTOR]))
 		midk = np.union1d(midk,midkadd)
 		#Find comps to ignore
+		new_varex_lb = scoreatpercentile(varex[ncl[:num_acc_guess]],LOW_PERC)
 		candart = np.setdiff1d(ncl[d_table_score>num_acc_guess*d_table_rank.shape[1]],midk)
 		ignadd = np.intersect1d(candart,candart[varex[candart]>new_varex_lb])
 		ignadd = np.union1d(ignadd,np.intersect1d(ncl[Kappas[ncl]<=Kappas_elbow],ncl[varex[ncl]>new_varex_lb]))
 		ign = np.setdiff1d(np.union1d(ign,ignadd),midk)
 		ncl = np.setdiff1d(ncl,np.union1d(midk,ign))
 		#Get rid of comps with very disproportionate Kappa vs varex
-		candartB = ncl[rankvec(varex[ncl])-rankvec(Kappas[ncl])>len(ncl)/EXTEND_FACTOR]
-		midk = np.union1d(midk,np.intersect1d(candartB,candartB[varex[candartB]>varex_ub]))
+		candartC = ncl[rankvec(varex[ncl])-rankvec(Kappas[ncl])>len(ncl)/EXTEND_FACTOR]
+		midk = np.union1d(midk,np.intersect1d(candartC,candartC[varex[candartC]>varex_ub]))
 		ncl = np.setdiff1d(ncl,midk)
 
 	if debug:
