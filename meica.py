@@ -145,12 +145,13 @@ extopts.add_option('',"--no_despike",action="store_true",dest='no_despike',help=
 extopts.add_option('',"--no_axialize",action="store_true",dest='no_axialize',help="Do not re-write dataset in axial-first order. Default is to axialize, recommended.",default=False)
 extopts.add_option('',"--mask_mode",dest='mask_mode',help="Mask functional with help from anatomical or standard space images: use 'anat' or 'template' ",default='func')
 extopts.add_option('',"--coreg_mode",dest='coreg_mode',help="Coregistration with Local Pearson and T2* weights (default), or use align_epi_anat.py (edge method): use 'lp-t2s' or 'aea'",default='lp-t2s')
-extopts.add_option('',"--smooth",dest='FWHM',help="Data FWHM smoothing (3dBlurInMask). Default off. ex: -smooth 3mm ",default='0mm')
+extopts.add_option('',"--smooth",dest='FWHM',help="Data FWHM smoothing (3dBlurInMask). Default off. ex: --smooth 3mm ",default='0mm')
 extopts.add_option('',"--align_base",dest='align_base',help="Explicitly specify base dataset for volume registration",default='')
 #extopts.add_option('',"--uni_when",dest='uni_when',help="When to unifize anatomical relative to skullstrip: pre,post,never. Default pre.",default='pre')
 extopts.add_option('',"--TR",dest='TR',help="The TR. Default read from input dataset header",default='')
 extopts.add_option('',"--tpattern",dest='tpattern',help="Slice timing (i.e. alt+z, see 3dTshift -help). Default from header. (N.B. This is important!)",default='')
-extopts.add_option('',"--daw",dest='daw',help="Dimensionality increase weight. Default 10. For very low tSNR data, use -1",default='10')
+extopts.add_option('',"--daw",dest='daw',help="Weight to increase ICA dimensionality, default 10. Use -1 for low tSNR data",default='10')
+extopts.add_option('',"--select_extend",dest='select_extend',help="Component selection factor, default 2. Try 3 or greater for more conservative selection.",default='2')
 extopts.add_option('',"--align_args",dest='align_args',help=SUPPRESS_HELP,default='')
 extopts.add_option('',"--tlrc",dest='space',help=SUPPRESS_HELP,default=False) #For backwards compat. with existing scripts
 extopts.add_option('',"--highpass",dest='highpass',help=SUPPRESS_HELP,default=0.0)
@@ -608,7 +609,9 @@ else: tedflag = ''
 if os.path.exists('%s/meica.libs' % (meicadir)): tedanapath = 'meica.libs/tedana.py'
 else: tedanapath = 'tedana.py'
 logcomment("Perform TE-dependence analysis (takes a good while)",level=1)
-sl.append("%s%s %s -e %s  -d %s --sourceTEs=%s --kdaw=%s --rdaw=1 --initcost=%s --finalcost=%s --conv=2.5e-5" % (tedflag,sys.executable, '/'.join([meicadir,tedanapath]),options.tes,ica_input,options.sourceTEs,options.daw,options.initcost,options.finalcost))
+extend_arg=''
+if options.select_extend!='': extend_arg = 'EXTEND_FACTOR=%s' % (options.select_extend)
+sl.append("%s%s %s -e %s  -d %s --sourceTEs=%s --kdaw=%s --rdaw=1 --initcost=%s --finalcost=%s --conv=2.5e-5 %s" % (tedflag,sys.executable, '/'.join([meicadir,tedanapath]),options.tes,ica_input,options.sourceTEs,options.daw,options.initcost,options.finalcost,extend_arg))
 sl.append("#")
 if outprefix=='': outprefix=setname
 

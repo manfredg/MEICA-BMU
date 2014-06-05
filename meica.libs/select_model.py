@@ -197,7 +197,7 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None,f
 	return seldict,comptab,betas,mmix_new
 
 
-def selcomps(seldict,debug=False,olevel=1,oversion=99):
+def selcomps(seldict,debug=False,olevel=2,oversion=99,knobargs=''):
 
 	#import ipdb
 
@@ -226,7 +226,12 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	LOW_PERC=25
 	HIGH_PERC=90
 	EXTEND_FACTOR=2
+	try:
+		if nt<100: EXTEND_FACTOR=3
+	except: pass
 	RESTRICT_FACTOR=2
+	if knobargs!='': 
+		for knobarg in knobargs.split(','): exec(knobarg)
 
 	"""
 	Do some tallies for no. of significant voxels
@@ -330,6 +335,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 	"""
 	Step 5: Scrub the set
 	"""
+
 	if len(ncl)>len(good_guess):
 		#Recompute the midk steps on the limited set to clean up the tail
 		d_table_rank = np.vstack([len(ncl)-rankvec(Kappas[ncl]), len(ncl)-rankvec(dice_table[ncl,0]),len(ncl)-rankvec(tt_table[ncl,0]), rankvec(countnoise[ncl]), rankvec(Rhos[ncl]), len(ncl)-rankvec(countsigFR2[ncl])]).T
@@ -349,7 +355,7 @@ def selcomps(seldict,debug=False,olevel=1,oversion=99):
 		ncl = np.setdiff1d(ncl,np.union1d(midk,ign))
 		#Get rid of comps with very disproportionate Kappa vs varex
 		candartC = ncl[rankvec(varex[ncl])-rankvec(Kappas[ncl])>len(ncl)/RESTRICT_FACTOR]
-		midk = np.union1d(midk,np.intersect1d(candartC,ncl[Kappa_ratios[ncl]>RESTRICT_FACTOR]))
+		midk = np.union1d(midk,np.intersect1d(candartC,ncl[Kappa_ratios[ncl]>EXTEND_FACTOR]))
 		ncl = np.setdiff1d(ncl,midk)
 
 	if debug:
