@@ -231,7 +231,7 @@ def selcomps(seldict,debug=False,olevel=2,oversion=99,knobargs=''):
 	except: pass
 	RESTRICT_FACTOR=2
 	if knobargs!='': 
-		for knobarg in knobargs.split(','): exec(knobarg)
+		for knobarg in ''.join(knobargs).split(','): exec(knobarg)
 
 	"""
 	Do some tallies for no. of significant voxels
