@@ -353,10 +353,6 @@ def selcomps(seldict,debug=False,olevel=2,oversion=99,knobargs=''):
 		ignadd = np.union1d(ignadd,np.intersect1d(ncl[Kappas[ncl]<=Kappas_elbow],ncl[varex[ncl]>new_varex_lb]))
 		ign = np.setdiff1d(np.union1d(ign,ignadd),midk)
 		ncl = np.setdiff1d(ncl,np.union1d(midk,ign))
-		#Get rid of comps with very disproportionate Kappa vs varex
-		#candartC = ncl[rankvec(varex[ncl])-rankvec(Kappas[ncl])>len(ncl)/RESTRICT_FACTOR]
-		#midk = np.union1d(midk,np.intersect1d(candartC,ncl[Kappa_ratios[ncl]>EXTEND_FACTOR]))
-		#ncl = np.setdiff1d(ncl,midk)
 
 	if debug:
 		import ipdb
