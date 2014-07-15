@@ -84,8 +84,10 @@ def import_datasets(dsets):
 	outnames = []
 	for dset in dsets:
 		if dset!='' and dset!=None: 
-			sl.append("3dcopy -overwrite %s ./%s" % (dset,dsprefix(dset)))
-			sl.append("3drefit -view orig `ls %s+*.HEAD`" % (dsprefix(dset)))
+			indir=''
+			if dset[0]!='/': indir = startdir
+			sl.append("3dcopy -overwrite %s/%s %s/%s/%s" % (indir,dset,startdir,walignp_dirname,dsprefix(os.path.basename(dset))))
+			sl.append("3drefit -view orig `ls %s/%s/%s+*.HEAD`" % (startdir,walignp_dirname,dsprefix(os.path.basename(dset))))
 			outnames.append(niibrik(dset))	
 		else: 
 			outnames.append('')
