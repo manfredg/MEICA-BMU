@@ -88,7 +88,8 @@ def import_datasets(dsets):
 			if dset[0]!='/': indir = startdir
 			sl.append("3dcopy -overwrite %s/%s %s/%s/%s" % (indir,dset,startdir,walignp_dirname,dsprefix(os.path.basename(dset))))
 			sl.append("3drefit -view orig `ls %s/%s/%s+*.HEAD`" % (startdir,walignp_dirname,dsprefix(os.path.basename(dset))))
-			outnames.append(niibrik(dset))	
+			impdset = '%s+orig' % dsprefix(os.path.basename(dset))
+			outnames.append(niibrik(impdset))	
 		else: 
 			outnames.append('')
 	return outnames
@@ -133,8 +134,6 @@ def allineate(sourcevol, weight, targetvol, prefix, maxrot, maxshf,maxscl):
 	outvol_name = niibrik(outvol_prefix)
 	outmat_name = outmat_prefix + 'blah'
 	return outvol_name, outmat_name
-
-#def catmat(alcen_matrix,allin_matrix):
 
 def aligntest(target,source,testname):
 	sl.append("3dresample -overwrite -master %s -inset %s -prefix altestA -rmode NN" % (target,source))

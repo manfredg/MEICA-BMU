@@ -443,8 +443,6 @@ if options.anat!='':
 	#Copy in anatomical and make sure its in +orig space
 	logcomment("Copy anatomical into ME-ICA directory and process warps",level=1)
 	sl.append("cp %s/%s* ." % (startdir,nsmprage))
-	if not options.no_axialize:
-		sl.append("3daxialize  -overwrite -prefix %s %s "  % (nsmprage,nsmprage))
 	abmprage = nsmprage
 	refanat = nsmprage
 	if options.space:
@@ -473,7 +471,7 @@ if options.anat!='':
 			sl.append("if [ ! -e %s/%s ]; then " % (startdir,nlatnsmprage))
 			logcomment("Compute non-linear warp to standard space using 3dQwarp (get lunch, takes a while) ")
 			sl.append("3dUnifize -overwrite -GM -prefix ./%su.nii.gz %s/%s" % (dsprefix(atnsmprage),startdir,atnsmprage))  
-			sl.append("3dQwarp -iwarp -overwrite -resample -duplo -useweight -blur 2 2 -workhard -base ${templateloc}/%s -prefix %s/%snl.nii.gz -source ./%su.nii.gz" % (options.space,startdir,dsprefix(atnsmprage),dsprefix(atnsmprage)))
+			sl.append("3dQwarp -iwarp -overwrite -resample -useweight -blur 2 2 -workhard -base ${templateloc}/%s -prefix %s/%snl.nii.gz -source ./%su.nii.gz" % (options.space,startdir,dsprefix(atnsmprage),dsprefix(atnsmprage)))
 			sl.append("fi")
 			sl.append("ln -s %s/%s ." % (startdir,nlatnsmprage))
 			refanat = '%s/%snl.nii.gz' % (startdir,dsprefix(atnsmprage))
@@ -483,9 +481,13 @@ if options.anat!='':
 	else: alnsmprage = "%s/%s" % (startdir,nsmprage)
 	if options.coreg_mode=='lp-t2s': 
 		logcomment("Using alignp_mepi_anat.py to drive T2*-map weighted anatomical-functional coregistration")
+		ama_alnsmprage = alnsmprage
+		if not options.no_axialize:
+			ama_alnsmprage = os.path.basename(alnsmprage)
+			sl.append("3daxialize -overwrite -prefix ./%s %s" % (ama_alnsmprage,alnsmprage))
 		t2salignpath = 'meica.libs/alignp_mepi_anat.py'
 		sl.append("%s %s -t t2svm_ss.nii.gz -a %s -p mepi %s" % \
-			(sys.executable, '/'.join([meicadir,t2salignpath]),alnsmprage,options.align_args))
+			(sys.executable, '/'.join([meicadir,t2salignpath]),ama_alnsmprage,options.align_args))
 		sl.append("cp alignp.mepi/mepi_al_mat.aff12.1D ./%s_al_mat.aff12.1D" % anatprefix)
 	elif options.coreg_mode=='aea':
 		logcomment("Using AFNI align_epi_anat.py to drive anatomical-functional coregistration ")
