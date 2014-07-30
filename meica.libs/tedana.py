@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-__version__="v2.5 beta8"
+__version__="v2.5 beta10"
 welcome_block="""
 # Multi-Echo ICA, Version %s
 #
@@ -443,18 +443,24 @@ def write_split_ts(data,comptable,mmix,suffix=''):
 	dmdata = mdata.T-mdata.T.mean(0)
 	varexpl = (1-((dmdata.T-betas.dot(mmix.T))**2.).sum()/(dmdata**2.).sum())*100
 	print 'Variance explained: ', varexpl , '%'
-	niwrite(unmask(betas[:,acc].dot(mmix.T[acc,:]),mask),aff,'_'.join(['hik_ts',suffix])+'.nii')
 	midkts = betas[:,midk].dot(mmix.T[midk,:])
 	lowkts = betas[:,rej].dot(mmix.T[rej,:])
-	if len(midk)!=0: niwrite(unmask(midkts,mask),aff,'_'.join(['midk_ts',suffix])+'.nii')
-	niwrite(unmask(lowkts,mask),aff,'_'.join(['lowk_ts',suffix])+'.nii')
+	if len(acc)!=0:
+		niwrite(unmask(betas[:,acc].dot(mmix.T[acc,:]),mask),aff,'_'.join(['hik_ts',suffix])+'.nii')
+	if len(midk)!=0: 
+		niwrite(unmask(midkts,mask),aff,'_'.join(['midk_ts',suffix])+'.nii')
+	if len(rej)!=0: 
+		niwrite(unmask(lowkts,mask),aff,'_'.join(['lowk_ts',suffix])+'.nii')
 	niwrite(unmask(fmask(data,mask)-lowkts-midkts,mask),aff,'_'.join(['dn_ts',suffix])+'.nii')
 	return varexpl
 
 def split_ts(data,comptable,mmix):
 	cbetas = get_coeffs(data-data.mean(-1)[:,:,:,np.newaxis],mask,mmix)
 	betas = fmask(cbetas,mask)
-	hikts=unmask(betas[:,acc].dot(mmix.T[acc,:]),mask)
+	if len(acc)!=0:
+		hikts=unmask(betas[:,acc].dot(mmix.T[acc,:]),mask)
+	else:
+		hikts = None
 	return hikts,data-hikts
 
 def writefeats(cbetas,comptable,mmix,suffix=''):
@@ -526,7 +532,30 @@ def writect(comptable,ctname='',varexpl='-1',classarr=[]):
 		for i in range(nc):
 			f.write('%d\t%f\t%f\t%.2f\t%.2f\n'%(sortab[i,0],sortab[i,1],sortab[i,2],sortab[i,3],sortab[i,4]))
 
-	
+def writeresults():
+	print "++ Writing optimally combined time series"
+	ts = optcom(catd,t2s,tes,mask)
+	niwrite(ts,aff,'ts_OC.nii')
+	print "++ Writing Kappa-filtered optimally combined timeseries"
+	varexpl = write_split_ts(ts,comptable,mmix,'OC')
+	print "++ Writing signal versions of components"
+	ts_B = get_coeffs(ts,mask,mmix)
+	niwrite(ts_B[:,:,:,:],aff,'_'.join(['betas','OC'])+'.nii')
+	if len(acc)!=0:
+		niwrite(ts_B[:,:,:,acc],aff,'_'.join(['betas_hik','OC'])+'.nii')
+		print "++ Writing optimally combined high-Kappa features"
+		writefeats2(split_ts(ts,comptable,mmix)[0],mmix[:,acc],mask,'OC2')
+	print "++ Writing component table"
+	writect(comptable,'comp_table.txt',varexpl)
+	if options.e2d!=None:
+		options.e2d=int(options.e2d)
+		print "++ Writing Kappa-filtered TE#%i timeseries" % (options.e2d)
+		write_split_ts(catd[:,:,:,options.e2d-1,:],comptable,mmix,'e%i' % options.e2d)
+		print "++ Writing high-Kappa TE#%i  features" % (options.e2d)
+		writefeats(betas[:,:,:,options.e2d-1,:],comptable,mmix,'e%i' % options.e2d)
+
+
+
 ###################################################################################################
 # 						Begin Main
 ###################################################################################################
@@ -604,8 +633,8 @@ if __name__=='__main__':
 		mmix_orig = tedica(dd,cost=options.initcost)
 		np.savetxt('__meica_mix.1D',mmix_orig)
 		seldict,comptable,betas,mmix = fitmodels_direct(catd,mmix_orig,mask,t2s,tes,options.fout,reindex=True)
-		acc,rej,midk,empty = selcomps(seldict,knobargs=args)
 		np.savetxt('meica_mix.1D',mmix)
+		acc,rej,midk,empty = selcomps(seldict,knobargs=args)
 		del dd
 	else:
 		mmix_orig = np.loadtxt('meica_mix.1D')
@@ -613,27 +642,8 @@ if __name__=='__main__':
 		eimum = np.array(np.squeeze(unmask(np.array(eim,dtype=np.int).prod(1),mask)),dtype=np.bool)
 		seldict,comptable,betas,mmix = fitmodels_direct(catd,mmix_orig,mask,t2s,tes,options.fout)
 		acc,rej,midk,empty = selcomps(seldict,knobargs=args)
-            
-	
-	print "++ Writing optimally combined time series"
-	ts = optcom(catd,t2s,tes,mask)
-	niwrite(ts,aff,'ts_OC.nii')
-	print "++ Writing Kappa-filtered optimally combined timeseries"
-	varexpl = write_split_ts(ts,comptable,mmix,'OC')
-	print "++ Writing signal versions of components"
-	#ipdb.set_trace()
-	ts_B = get_coeffs(ts,mask,mmix)
-	niwrite(ts_B[:,:,:,:],aff,'_'.join(['betas','OC'])+'.nii')
-	niwrite(ts_B[:,:,:,acc],aff,'_'.join(['betas_hik','OC'])+'.nii')
-	print "++ Writing optimally combined high-Kappa features"
-	writefeats2(split_ts(ts,comptable,mmix)[0],mmix[:,acc],mask,'OC2')
 
-	print "++ Writing component table"
-	writect(comptable,'comp_table.txt',varexpl)
-
-	if options.e2d!=None:
-		options.e2d=int(options.e2d)
-		print "++ Writing Kappa-filtered TE#%i timeseries" % (options.e2d)
-		write_split_ts(catd[:,:,:,options.e2d-1,:],comptable,mmix,'e%i' % options.e2d)
-		print "++ Writing high-Kappa TE#%i  features" % (options.e2d)
-		writefeats(betas[:,:,:,options.e2d-1,:],comptable,mmix,'e%i' % options.e2d)
+	if len(acc)==0:
+		print "\n** WARNING! No BOLD components detected!!! Please check data and results!\n"
+    
+	writeresults()        

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-__version__="v2.5 beta9"
+__version__="v2.5 beta10"
 welcome_block="""
 # Multi-Echo ICA, Version %s
 #
@@ -147,12 +147,11 @@ extopts.add_option('',"--mask_mode",dest='mask_mode',help="Mask functional with 
 extopts.add_option('',"--coreg_mode",dest='coreg_mode',help="Coregistration with Local Pearson and T2* weights (default), or use align_epi_anat.py (edge method): use 'lp-t2s' or 'aea'",default='lp-t2s')
 extopts.add_option('',"--smooth",dest='FWHM',help="Data FWHM smoothing (3dBlurInMask). Default off. ex: --smooth 3mm ",default='0mm')
 extopts.add_option('',"--align_base",dest='align_base',help="Explicitly specify base dataset for volume registration",default='')
-#extopts.add_option('',"--uni_when",dest='uni_when',help="When to unifize anatomical relative to skullstrip: pre,post,never. Default pre.",default='pre')
 extopts.add_option('',"--TR",dest='TR',help="The TR. Default read from input dataset header",default='')
 extopts.add_option('',"--tpattern",dest='tpattern',help="Slice timing (i.e. alt+z, see 3dTshift -help). Default from header. (N.B. This is important!)",default='')
-extopts.add_option('',"--daw",dest='daw',help="Weight to increase ICA dimensionality, default 10. Use -1 for low tSNR data",default='10')
 extopts.add_option('',"--align_args",dest='align_args',help="Additional arguments to anatomical-functional co-registration routine",default='')
 extopts.add_option('',"--ted_args",dest='ted_args',help="Additional arguments to TE-dependence analysis routine",default='')
+extopts.add_option('',"--daw",dest='daw',help=SUPPRESS_HELP,default='10')
 extopts.add_option('',"--tlrc",dest='space',help=SUPPRESS_HELP,default=False) #For backwards compat. with existing scripts
 extopts.add_option('',"--highpass",dest='highpass',help=SUPPRESS_HELP,default=0.0)
 extopts.add_option('',"--detrend",dest='detrend',help=SUPPRESS_HELP,default=0.)
@@ -471,7 +470,7 @@ if options.anat!='':
 			sl.append("if [ ! -e %s/%s ]; then " % (startdir,nlatnsmprage))
 			logcomment("Compute non-linear warp to standard space using 3dQwarp (get lunch, takes a while) ")
 			sl.append("3dUnifize -overwrite -GM -prefix ./%su.nii.gz %s/%s" % (dsprefix(atnsmprage),startdir,atnsmprage))  
-			sl.append("3dQwarp -iwarp -overwrite -resample -useweight -blur 2 2 -workhard -base ${templateloc}/%s -prefix %s/%snl.nii.gz -source ./%su.nii.gz" % (options.space,startdir,dsprefix(atnsmprage),dsprefix(atnsmprage)))
+			sl.append("3dQwarp -iwarp -overwrite -resample -useweight -blur 2 2 -duplo -workhard -base ${templateloc}/%s -prefix %s/%snl.nii.gz -source ./%su.nii.gz" % (options.space,startdir,dsprefix(atnsmprage),dsprefix(atnsmprage)))
 			sl.append("fi")
 			sl.append("ln -s %s/%s ." % (startdir,nlatnsmprage))
 			refanat = '%s/%snl.nii.gz' % (startdir,dsprefix(atnsmprage))
@@ -575,7 +574,9 @@ for echo_ii in range(len(datasets)):
 			(startdir,dsprefix(nlatnsmprage),prefix,dsin,align_interp,dsin,osf))
 	else: sl.append("3dAllineate -final %s -%s -float -1Dmatrix_apply %s_vrwmat.aff12.1D -base eBvrmask%s -input  %s_ts+orig -prefix ./%s_vr%s" % \
 		(align_interp,align_interp,prefix,osf,dsin,dsin,osf))
-	
+	if echo_ii == 0:
+		sl.append("3dTstat -min -prefix ./%s_vr_min%s ./%s_vr%s" % (dsin,osf,dsin,osf) )
+		sl.append("3dcalc -a eBvrmask.nii.gz -b %s_vr_min%s -expr 'step(a)*step(b)' -overwrite -prefix eBvrmask.nii.gz " % (dsin,osf))
 	if options.FWHM=='0mm': 
 		sl.append("3dcalc -float -overwrite -a eBvrmask.nii.gz -b ./%s_vr%s[%i..$] -expr 'step(a)*b' -prefix ./%s_sm%s " % (dsin,osf,basebrik,dsin,osf))
 	else: 
@@ -601,7 +602,7 @@ else:
 	ica_mask = "zcat_mask.nii.gz"
 	zcatstring=""
 	for echo in ica_datasets: 
-		dsin ='e'+echo+trailing
+		dsin ='e'+echo
 		zcatstring = "%s ./%s_in%s" % (zcatstring,dsin,osf)
 	sl.append("3dZcat -overwrite -prefix %s  %s" % (ica_input,zcatstring) )
 	sl.append("3dcalc -float -overwrite -a %s[0] -expr 'notzero(a)' -prefix %s" % (ica_input,ica_mask))
