@@ -299,10 +299,15 @@ def selcomps(seldict,debug=False,olevel=2,oversion=99,knobargs=''):
 	Rhos_sorted = np.array(sorted(Rhos)[::-1])
 	Kappas_elbow = min(Kappas_lim[getelbow(Kappas_lim)],Kappas[getelbow(Kappas)])
 	Rhos_elbow = np.mean([Rhos_lim[getelbow(Rhos_lim)]  , Rhos_sorted[getelbow(Rhos_sorted)], getfbounds(ne)[0]])
-	good_guess = ncls[andb([Kappas[ncls]>=Kappas_elbow, Rhos[ncls]<Rhos_elbow])==2]
+	#Alternate elbow estimate for Kappa spectram with many kinks
+	Kappas_delta = Kappas[ncls][:-1]-Kappas[ncls][1:]
+	Kappas_tail = Kappas[ncls][:-5][np.max(np.arange(len(Kappas_delta[:-5]))[Kappas_delta[:-5] > 3*np.median(Kappas_delta[-5:-1])])]
 	if debug:
 		import ipdb
 		ipdb.set_trace()
+	if float(np.array(Kappas[ncls]>Kappas_elbow,dtype=int).sum())/np.array(Kappas[ncls]>Kappas_tail,dtype=int).sum() < .5:
+		Kappas_elbow = Kappas_tail
+	good_guess = ncls[andb([Kappas[ncls]>=Kappas_elbow, Rhos[ncls]<Rhos_elbow])==2]
 	if len(good_guess)==0:
 		return [],sorted(rej),[],sorted(np.setdiff1d(nc,rej))
 	Kappa_rate = (max(Kappas[good_guess])-min(Kappas[good_guess]))/(max(varex[good_guess])-min(varex[good_guess]))
@@ -321,11 +326,11 @@ def selcomps(seldict,debug=False,olevel=2,oversion=99,knobargs=''):
 	midkadd = ncl[andb([d_table_score[ncl] > max_good_d_score, varex[ncl] > EXTEND_FACTOR*varex_ub])==2]
 	midk = np.union1d(midkadd, midk)
 	ncl = np.setdiff1d(ncl,midk)
+	good_guess = np.setdiff1d(good_guess,midk)
 
 	"""
 	Step 4: Find components to ignore
 	"""
-	good_guess = np.setdiff1d(good_guess,midk)
 	loaded = np.union1d(good_guess, ncl[varex[ncl]>varex_lb])
 	igncand = np.setdiff1d(ncl,loaded)
 	igncand = np.setdiff1d(igncand, igncand[d_table_score[igncand]<max_good_d_score])
