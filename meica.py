@@ -308,11 +308,15 @@ if options.anat=='' and options.mask_mode!='func':
 	print "*+ Can't do anatomical-based functional masking without an anatomical!"
 	sys.exit()
 
+#Detect AFNI direcotry
+afnidir = os.path.dirname(os.popen('which 3dSkullStrip').readlines()[0])
+
 #Prepare script and enter MEICA directory
 logcomment("Set up script run environment",level=1)
 sl.append('set -e')
 sl.append('export OMP_NUM_THREADS=%s' % (options.cpus))
 sl.append('export MKL_NUM_THREADS=%s' % (options.cpus))
+sl.append('export DYLD_FALLBACK_LIBRARY_PATH=%s' % (afnidir))
 sl.append('export AFNI_3dDespike_NEW=YES')
 if options.overwrite: 
 	sl.append('rm -rf meica.%s' % (setname))
@@ -394,7 +398,7 @@ for echo_ii in range(len(datasets)):
 	if echo_ii==0: e1_dsin = dsin
 	logcomment("Preliminary preprocessing dataset %s of TE=%sms to produce %s_ts+orig" % (indata,str(tes[echo_ii]),dsin) )
 	#Pre-treat datasets: De-spike, RETROICOR in the future?
-	intsname = "%s%s" % (indata,isf)
+	intsname = '%s%s' % (dsprefix(indata),isf)
 	if not options.no_despike:
 		intsname = "./%s_pt.nii.gz" % dsprefix(indata)
 		sl.append("3dDespike -overwrite -prefix %s %s%s" % (intsname,dsprefix(indata),isf))
