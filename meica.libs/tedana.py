@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-__version__="v2.5 beta10"
+__version__="v2.5 beta11"
 welcome_block="""
 # Multi-Echo ICA, Version %s
 #
@@ -32,8 +32,9 @@ import datetime
 if __name__=='__main__':
 	selfuncfile='%s/select_model.py' % os.path.dirname(argv[0])
 	execfile(selfuncfile)
-
-#import ipdb
+import cPickle as pickle
+import ipdb
+import bz2
 
 F_MAX=500
 Z_MAX = 8
@@ -357,40 +358,65 @@ def tedpca(ste=0):
 		print "-Computing PCA of TE #%s" % ','.join([str(ee) for ee in ste])
 		d = np.float64(np.concatenate([fmask(catd[:,:,:,ee,:],mask)[:,np.newaxis,:] for ee in ste-1],axis=1))
 		eim = eimask(d)==1
-		d = d[eim]
+		eim = np.squeeze(eim)
+		d = np.squeeze(d[eim])
 
 	dz = ((d.T-d.T.mean(0))/d.T.std(0)).T #Variance normalize timeseries
 	dz = (dz-dz.mean())/dz.std() #Variance normalize everything
-	
-	##Do PC dimension selection
-	#Get eigenvalue cutoff
-	u,s,v = np.linalg.svd(dz,full_matrices=0)
-	sp = s/s.sum()
-	eigelb = sp[getelbow(sp)]
 
-	spdif = np.abs(sp[1:]-sp[:-1])
-	spdifh = spdif[spdif.shape[0]/2:]
-	spdmin = spdif.min()
-	spdthr = np.mean([spdifh.max(),spdmin])
-	spmin = sp[(spdif.shape[0]/2)+(np.arange(spdifh.shape[0])[spdifh>=spdthr][0])+1]
-	spcum = []
-	spcumv = 0
-	for sss in sp:
-		spcumv+=sss
-		spcum.append(spcumv)
-	spcum = np.array(spcum)
+	pcastate_fn = 'pcastate.pklbz'
+
+	if not os.path.exists(pcastate_fn):
+		##Do PC dimension selection
+		#Get eigenvalue cutoff
+		u,s,v = np.linalg.svd(dz,full_matrices=0)
+		sp = s/s.sum()
+		eigelb = sp[getelbow(sp)]
+
+		#ipdb.set_trace()
+
+		spdif = np.abs(sp[1:]-sp[:-1])
+		spdifh = spdif[spdif.shape[0]/2:]
+		spdmin = spdif.min()
+		spdthr = np.mean([spdifh.max(),spdmin])
+		spmin = sp[(spdif.shape[0]/2)+(np.arange(spdifh.shape[0])[spdifh>=spdthr][0])+1]
+		spcum = []
+		spcumv = 0
+		for sss in sp:
+			spcumv+=sss
+			spcum.append(spcumv)
+		spcum = np.array(spcum)
+			
+		#Compute K and Rho for PCA comps
 		
-	#Compute K and Rho for PCA comps
-	eimum = np.array(np.squeeze(unmask(np.array(np.atleast_2d(eim).T,dtype=np.int).prod(1),mask)),dtype=np.bool)
-	vTmix = v.T
-	vTmixN =((vTmix.T-vTmix.T.mean(0))/vTmix.T.std(0)).T
-	#ctb,KRd,betasv,v_T = fitmodels2(catd,v.T,eimum,t2s,tes,mmixN=vTmixN)
-	none,ctb,betasv,v_T = fitmodels_direct(catd,v.T,eimum,t2s,tes,mmixN=vTmixN,full_sel=False)
-	ctb = ctb[ctb[:,0].argsort(),:]
-	ctb = np.vstack([ctb.T[0:3],sp]).T
-	
+		#ipdb.set_trace()
+
+		eimum = np.atleast_2d(eim)
+		eimum = np.transpose(eimum,np.argsort(np.atleast_2d(eim).shape)[::-1])
+		eimum = np.array(np.squeeze(unmask(eimum.prod(1),mask)),dtype=np.bool)
+		vTmix = v.T
+		vTmixN =((vTmix.T-vTmix.T.mean(0))/vTmix.T.std(0)).T
+		#ctb,KRd,betasv,v_T = fitmodels2(catd,v.T,eimum,t2s,tes,mmixN=vTmixN)
+		none,ctb,betasv,v_T = fitmodels_direct(catd,v.T,eimum,t2s,tes,mmixN=vTmixN,full_sel=False)
+		ctb = ctb[ctb[:,0].argsort(),:]
+		ctb = np.vstack([ctb.T[0:3],sp]).T
+
+		#Save state
+		print "Saving PCA"
+		pcastate = {'u':u,'s':s,'v':v,'ctb':ctb,'eigelb':eigelb,'spmin':spmin,'spcum':spcum}
+		pcastate_f = bz2.BZ2File('pcastate.pklbz','wb')
+		pickle.dump(pcastate,pcastate_f)
+		pcastate_f.close()
+
+	else:
+		print "Loading PCA"
+		pcastate_f = bz2.BZ2File('pcastate.pklbz','rb')
+		pcastate = pickle.load(pcastate_f)
+		for key,val in pcastate.items(): exec(key + '=val')
+
 	np.savetxt('comp_table_pca.txt',ctb[ctb[:,1].argsort(),:][::-1])
 	np.savetxt('mepca_mix.1D',v[ctb[:,1].argsort()[::-1],:].T)
+	
 	kappas = ctb[ctb[:,1].argsort(),1]
 	rhos = ctb[ctb[:,2].argsort(),2]
 	fmin,fmid,fmax = getfbounds(ne)
@@ -412,6 +438,9 @@ def tedpca(ste=0):
 		pcscore = (np.array(ctb[:,1]>kappa_thr,dtype=np.int)+np.array(ctb[:,2]>rho_thr,dtype=np.int)+np.array(ctb[:,3]>eigelb,dtype=np.int))*np.array(ctb[:,3]>spmin,dtype=np.int)*np.array(ctb[:,1]!=F_MAX,dtype=np.int)*np.array(ctb[:,2]!=F_MAX,dtype=np.int)
 	pcsel = pcscore > 0 
 	pcrej = np.array(pcscore==0,dtype=np.int)*np.array(ctb[:,3]>spmin,dtype=np.int) > 0
+
+	#ipdb.set_trace()
+
 	dd = u.dot(np.diag(s*np.array(pcsel,dtype=np.int))).dot(v)
 	nc = s[pcsel].shape[0]
 	print pcsel
