@@ -33,7 +33,7 @@ if __name__=='__main__':
 	selfuncfile='%s/select_model.py' % os.path.dirname(argv[0])
 	execfile(selfuncfile)
 import cPickle as pickle
-import ipdb
+#import ipdb
 import bz2
 
 F_MAX=500
