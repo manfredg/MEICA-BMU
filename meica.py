@@ -20,6 +20,7 @@ welcome_block="""
 # -Compute PCA and ICA in conjuction with TE-dependence analysis
 """ % (__version__)
 
+import ipdb
 import sys
 import commands
 from re import split as resplit
@@ -180,7 +181,7 @@ extopts.add_option('',"--initcost",dest='initcost',help=SUPPRESS_HELP,default='t
 extopts.add_option('',"--finalcost",dest='finalcost',help=SUPPRESS_HELP,default='tanh')
 extopts.add_option('',"--sourceTEs",dest='sourceTEs',help=SUPPRESS_HELP,default='-1')
 parser.add_option_group(extopts)
-runopts=OptionGroup(parser,"Run optipns")
+runopts=OptionGroup(parser,"Run options")
 runopts.add_option('',"--prefix",dest='prefix',help="Prefix for final ME-ICA output datasets.",default='')
 runopts.add_option('',"--cpus",dest='cpus',help="Maximum number of CPUs (OpenMP threads) to use. Default 2.",default='2')
 runopts.add_option('',"--label",dest='label',help="Label to tag ME-ICA analysis folder.",default='')
@@ -189,6 +190,7 @@ runopts.add_option('',"--script_only",action="store_true",dest='script_only',hel
 runopts.add_option('',"--pp_only",action="store_true",dest='pp_only',help="Preprocess only, then exit.",default=False)
 runopts.add_option('',"--keep_int",action="store_true",dest='keep_int',help="Keep preprocessing intermediates. Default delete.",default=False)
 runopts.add_option('',"--skip_check",action="store_true",dest='skip_check',help="Skip dependency checks during initialization.",default=False)
+runopts.add_option('',"--RESUME",dest='resume',action='store_true',help="Attempt to resume from normalization step onwards, overwriting existing")
 runopts.add_option('',"--OVERWRITE",dest='overwrite',action="store_true",help="If meica.xyz directory exists, overwrite. ",default=False)
 parser.add_option_group(runopts)
 (options,args) = parser.parse_args()
@@ -247,9 +249,10 @@ if len(options.tes.split(','))!=len(datasets):
 #Prepare script
 startdir=rstrip(popen('pwd').readlines()[0])
 meicadir=os.path.dirname(os.path.abspath(os.path.expanduser(sys.argv[0])))
+headsl = [] #Header lines and command list
 sl = []	#Script command list
-sl.append('#'+" ".join(sys.argv).replace('"',r"\""))
-sl.append(welcome_block)
+headsl.append('#'+" ".join(sys.argv).replace('"',r"\""))
+headsl.append(welcome_block)
 osf='.nii.gz' #Using NIFTI outputs
 
 #Check if input files exist
@@ -318,7 +321,7 @@ if options.anat!='':
 oblique_epi_read = int(os.popen('3dinfo -is_oblique %s' % (getdsname(0))).readlines()[0].strip())
 if oblique_epi_read or oblique_anat_read: 
 	oblique_mode = True
-	sl.append("echo Oblique data detected.")
+	headsl.append("echo Oblique data detected.")
 else: oblique_mode = False
 if options.fres:
 	if options.qwarp: qwfres="-dxyz %s" % options.fres
@@ -332,25 +335,28 @@ if options.anat=='' and options.mask_mode!='func':
 
 #Detect if current AFNI has old 3dNwarpApply
 if " -affter aaa  = *** THIS OPTION IS NO LONGER AVAILABLE" in commands.getstatusoutput("3dNwarpApply -help")[1]: old_qwarp = False
-else: old_warp = True
+else: old_qwarp = True
 
 #Detect AFNI direcotry
 afnidir = os.path.dirname(os.popen('which 3dSkullStrip').readlines()[0])
 
 #Prepare script and enter MEICA directory
 logcomment("Set up script run environment",level=1)
-sl.append('set -e')
-sl.append('export OMP_NUM_THREADS=%s' % (options.cpus))
-sl.append('export MKL_NUM_THREADS=%s' % (options.cpus))
-sl.append('export DYLD_FALLBACK_LIBRARY_PATH=%s' % (afnidir))
-sl.append('export AFNI_3dDespike_NEW=YES')
-if options.overwrite: 
-	sl.append('rm -rf meica.%s' % (setname))
-else: 
-	sl.append("if [[ -e meica.%s ]]; then echo ME-ICA directory exists, exiting; exit; fi" % (setname))
-sl.append('mkdir -p meica.%s' % (setname))
-sl.append("cp _meica_%s.sh meica.%s/" % (setname,setname))
-sl.append("cd meica.%s" % setname)
+headsl.append('set -e')
+headsl.append('export OMP_NUM_THREADS=%s' % (options.cpus))
+headsl.append('export MKL_NUM_THREADS=%s' % (options.cpus))
+headsl.append('export DYLD_FALLBACK_LIBRARY_PATH=%s' % (afnidir))
+headsl.append('export AFNI_3dDespike_NEW=YES')
+if not options.resume:
+	if options.overwrite: 
+		headsl.append('rm -rf meica.%s' % (setname))
+	else: 
+		headsl.append("if [[ -e meica.%s ]]; then echo ME-ICA directory exists, exiting; exit; fi" % (setname))
+	headsl.append('mkdir -p meica.%s' % (setname))
+if options.resume:
+	headsl.append('if [ ! -e meica.%s/_meica.orig.sh ]; then mv `ls meica.%s/_meica*sh` meica.%s/_meica.orig.sh; fi' % (setname,setname,setname))
+headsl.append("cp _meica_%s.sh meica.%s/" % (setname,setname))
+headsl.append("cd meica.%s" % setname)
 thecwd= "%s/meica.%s" % (getcwd(),setname)
 
 ica_datasets = sorted(datasets)
@@ -466,6 +472,11 @@ if not options.no_axialize:
 	sl.append("3daxialize -overwrite -prefix ocv_ss.nii.gz ocv_ss.nii.gz")
 	sl.append("3daxialize -overwrite -prefix s0v_ss.nii.gz s0v_ss.nii.gz")
 
+#Resume from here on
+if options.resume:
+	sl = []
+	sl.append("export AFNI_DECONFLICT=OVERWRITE")
+
 # Calculate affine anatomical warp if anatomical provided, then combine motion correction and coregistration parameters 
 if options.anat!='':
 	#Copy in anatomical and make sure its in +orig space
@@ -486,12 +497,12 @@ if options.anat!='':
 		sl.append("if [ ! -e %s/%s ]; then \@auto_tlrc -no_ss -init_xform AUTO_CENTER -base ${templateloc}/%s -input %s.nii.gz -suffix _at" % (startdir,atnsmprage,options.space,dsprefix(nsmprage)))
 		sl.append("cp %s.nii %s" % (dsprefix(atnsmprage),startdir))
 		sl.append("gzip -f %s/%s.nii" % (startdir,dsprefix(atnsmprage)))
-		sl.append("else ln -s %s/%s ." % (startdir,atnsmprage))
+		sl.append("else if [ ! -e %s/%s ]; then ln -s %s/%s .; fi" % (startdir,atnsmprage,startdir,atnsmprage))
 		refanat = '%s/%s' % (startdir,atnsmprage)
 		sl.append("fi")
 		sl.append("3dcopy %s/%s.nii.gz %s" % (startdir,dsprefix(atnsmprage),dsprefix(atnsmprage)))
-		sl.append("3drefit -view orig %s+tlrc " % dsprefix(atnsmprage) )
-		sl.append("3dAutobox -prefix ./abtemplate.nii.gz ${templateloc}/%s" % options.space)
+		sl.append("rm -f %s+orig.*; 3drefit -view orig %s+tlrc " % (dsprefix(atnsmprage),dsprefix(atnsmprage)) )
+		sl.append("3dAutobox -overwrite -prefix ./abtemplate.nii.gz ${templateloc}/%s" % options.space)
 		abmprage = 'abtemplate.nii.gz'
 		if options.qwarp:
 			logcomment("If can't find non-linearly warped anatomical, compute, save back; otherwise link")
@@ -501,7 +512,7 @@ if options.anat!='':
 			sl.append("3dUnifize -overwrite -GM -prefix ./%su.nii.gz %s/%s" % (dsprefix(atnsmprage),startdir,atnsmprage))  
 			sl.append("3dQwarp -iwarp -overwrite -resample -useweight -blur 2 2 -duplo -workhard -base ${templateloc}/%s -prefix %s/%snl.nii.gz -source ./%su.nii.gz" % (options.space,startdir,dsprefix(atnsmprage),dsprefix(atnsmprage)))
 			sl.append("fi")
-			sl.append("ln -s %s/%s ." % (startdir,nlatnsmprage))
+			sl.append("if [ ! -e %s/%s ]; then ln -s %s/%s .; fi" % (startdir,nlatnsmprage,startdir,nlatnsmprage))
 			refanat = '%s/%snl.nii.gz' % (startdir,dsprefix(atnsmprage))
 	
 	#Set anatomical reference for anatomical-functional co-registration
@@ -556,17 +567,17 @@ for echo_ii in range(len(datasets)):
 		sl.append("voxsize=`ccalc $(3dinfo -voxvol eBvrmask.nii.gz)**.33`") #Set voxel size
 		#Create base mask
 		if options.anat and options.space and options.qwarp: 
-			if old_qwarp: affter_string = "'-affter '%s_wmat.aff12.1D'" % prefix
-			else: affter_string = ""
-			sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz'  %s %s -source eBvrmask.nii.gz -interp %s -prefix ./eBvrmask.nii.gz " % \
-			(startdir,dsprefix(nlatnsmprage),prefix,almaster,qwfres,'NN'))
+			if old_qwarp: nwarpstring = " -nwarp '%s/%s_WARP.nii.gz' -affter '%s_wmat.aff12.1D'" % (startdir,dsprefix(nlatnsmprage),prefix)
+			else: nwarpstring = " -nwarp '%s/%s_WARP.nii.gz %s_wmat.aff12.1D' " % (startdir,dsprefix(nlatnsmprage),prefix)
+			sl.append("3dNwarpApply -overwrite %s %s %s -source eBvrmask.nii.gz -interp %s -prefix ./eBvrmask.nii.gz " % \
+			(nwarpstring,almaster,qwfres,'NN'))
 			if options.t2salign or options.mask_mode!='func':
-				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' %s %s %s -source t2svm_ss.nii.gz -interp %s -prefix ./t2svm_ss_vr.nii.gz " % \
-				(startdir,dsprefix(nlatnsmprage),affter_string,almaster,qwfres,'NN'))
-				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' %s %s %s -source ocv_uni+orig -interp %s -prefix ./ocv_uni_vr.nii.gz " % \
-				(startdir,dsprefix(nlatnsmprage),affter_string,almaster,qwfres,'NN'))
-				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' %s %s %s -source s0v_ss.nii.gz -interp %s -prefix ./s0v_ss_vr.nii.gz " % \
-				(startdir,dsprefix(nlatnsmprage),affter_string,almaster,qwfres,'NN'))
+				sl.append("3dNwarpApply -overwrite %s %s %s -source t2svm_ss.nii.gz -interp %s -prefix ./t2svm_ss_vr.nii.gz " % \
+				(nwarpstring,almaster,qwfres,'NN'))
+				sl.append("3dNwarpApply -overwrite %s %s %s -source ocv_uni+orig -interp %s -prefix ./ocv_uni_vr.nii.gz " % \
+				(nwarpstring,almaster,qwfres,'NN'))
+				sl.append("3dNwarpApply -overwrite %s %s %s -source s0v_ss.nii.gz -interp %s -prefix ./s0v_ss_vr.nii.gz " % \
+				(nwarpstring,almaster,qwfres,'NN'))
 		elif options.anat:
 			sl.append("3dAllineate -overwrite -final %s -%s -float -1Dmatrix_apply %s_wmat.aff12.1D -base eBvrmask.nii.gz -input eBvrmask.nii.gz -prefix ./eBvrmask.nii.gz %s %s" % \
 			('NN','NN',prefix,almaster,alfres))
@@ -609,8 +620,8 @@ for echo_ii in range(len(datasets)):
 	if options.qwarp: 
 		if old_qwarp: affter_string = "-affter %s_vrwmat.aff12.1D" % prefix
 		else: affter_string = ""
-		sl.append("3dNwarpApply -nwarp '%s/%s_WARP.nii.gz' %s -master eBvrmask.nii.gz -source %s_ts+orig -interp %s -prefix ./%s_vr%s " % \
-			(startdir,dsprefix(nlatnsmprage),affter_string,dsin,align_interp,dsin,osf))
+		sl.append("3dNwarpApply %s -master eBvrmask.nii.gz -source %s_ts+orig -interp %s -prefix ./%s_vr%s " % \
+			(nwarpstring,dsin,align_interp,dsin,osf))
 	else: sl.append("3dAllineate -final %s -%s -float -1Dmatrix_apply %s_vrwmat.aff12.1D -base eBvrmask%s -input  %s_ts+orig -prefix ./%s_vr%s" % \
 		(align_interp_final,align_interp,prefix,osf,dsin,dsin,osf))
 	if echo_ii == 0:
@@ -684,7 +695,7 @@ sl.append("%smv TED/%s_medn.nii.gz TED/%s_mefc.nii.gz TED/%s_tsoc.nii.gz TED/%s_
 #Write the preproc script and execute it
 ofh = open('_meica_%s.sh' % setname ,'w')
 print "++ Writing script file: _meica_%s.sh" % (setname)
-ofh.write("\n".join(sl)+"\n")
+ofh.write("\n".join(headsl + sl)+"\n")
 ofh.close()
 if not options.script_only: 
 	print "++ Executing script file: _meica_%s.sh" % (setname)

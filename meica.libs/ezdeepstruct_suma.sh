@@ -1,0 +1,2 @@
+#Use aseg_rank ! 
+3dcalc -overwrite -a $1 -prefix deepstruct.nii.gz -expr '100*a*step(equals(a,18)+equals(a,34)+equals(a,33)+equals(a,19)+equals(a,35)+equals(a,24)+equals(a,5)+equals(a,10)+equals(a,17)+equals(a,32)+equals(a,13)+equals(a,29)+equals(a,14)+equals(a,15)+equals(a,31)+equals(a,32)+equals(a,30)+equals(a,6)+equals(a,25)+equals(a,9)+equals(a,28)+equals(a,8)+equals(a,27)+equals(a,7)+equals(a,26))'
