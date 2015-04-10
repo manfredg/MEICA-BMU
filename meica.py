@@ -20,7 +20,7 @@ welcome_block="""
 # -Compute PCA and ICA in conjuction with TE-dependence analysis
 """ % (__version__)
 
-import ipdb
+#import ipdb
 import sys
 import commands
 from re import split as resplit
@@ -459,12 +459,12 @@ for echo_ii in range(len(dss)):
 	echo = datasets[echo_ii]
 	dsin = 'e'+echo
 	sl.append("3dAllineate -overwrite -final NN -NN -float -1Dmatrix_apply %s_vrmat.aff12.1D'{%i..%i}' -base eBbase.nii.gz -input %s_ts+orig'[%i..%i]' -prefix %s_vrA.nii.gz" % \
-				(prefix,int(basebrik),int(basebrik)+5,dsin,int(basebrik),int(basebrik)+5,dsin))
+				(prefix,int(basebrik),int(basebrik)+20,dsin,int(basebrik),int(basebrik)+20,dsin))
 	stackline+=" %s_vrA.nii.gz" % (dsin)
 sl.append("3dZcat -prefix basestack.nii.gz %s" % (stackline))
 sl.append("%s %s -d basestack.nii.gz -e %s" % (sys.executable, '/'.join([meicadir,'meica.libs','t2smap.py']),options.tes))
 sl.append("3dUnifize -prefix ./ocv_uni+orig ocv.nii")
-sl.append("3dSkullStrip -prefix ./ocv_ss.nii.gz -overwrite -input ocv_uni+orig")
+sl.append("3dSkullStrip -no_avoid_eyes -prefix ./ocv_ss.nii.gz -overwrite -input ocv_uni+orig")
 sl.append("3dcalc -overwrite -a t2svm.nii -b ocv_ss.nii.gz -expr 'a*ispositive(a)*step(b)' -prefix t2svm_ss.nii.gz" )
 sl.append("3dcalc -overwrite -a s0v.nii -b ocv_ss.nii.gz -expr 'a*ispositive(a)*step(b)' -prefix s0v_ss.nii.gz" )
 if not options.no_axialize:
@@ -601,7 +601,7 @@ for echo_ii in range(len(datasets)):
 			sl.append("t2sm=`cat t2s_med.1D`; t2sma=($t2sm); t2sm=${t2sma[1]}")
 			sl.append("s0vm=`cat s0v_med.1D`; s0vma=($s0vm); s0vm=${s0vma[1]}")
 			sl.append("3dcalc -a ocv_uni_vr.nii.gz -b anatmask_epi.nii.gz -c t2svm_ss_vr.nii.gz -d s0v_ss_vr.nii.gz -expr \"a-a*equals(equals(b,0)+isnegative(c-${t2sm})+ispositive(d-${s0vm}),3)\" -overwrite -prefix ocv_uni_vr.nii.gz ")
-			sl.append("3dSkullStrip -overwrite -input ocv_uni_vr.nii.gz -prefix eBvrmask.nii.gz ")
+			sl.append("3dSkullStrip -no_avoid_eyes -overwrite -input ocv_uni_vr.nii.gz -prefix eBvrmask.nii.gz ")
 			if options.fres: resstring = "-dxyz %s %s %s" % (options.fres,options.fres,options.fres)
 			else: resstring = "-dxyz ${voxsize} ${voxsize} ${voxsize}"
 			sl.append("3dresample -overwrite -master %s %s -input eBvrmask.nii.gz -prefix eBvrmask.nii.gz" % (abmprage,resstring))

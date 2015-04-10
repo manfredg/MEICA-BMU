@@ -1,7 +1,7 @@
 import nibabel as nib
 import numpy as np
 from sys import argv
-import ipdb
+#import ipdb
 
 def andb(arrs):
 	result = np.zeros(arrs[0].shape)

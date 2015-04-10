@@ -33,8 +33,8 @@ if __name__=='__main__':
 	selfuncfile='%s/select_model.py' % os.path.dirname(argv[0])
 	execfile(selfuncfile)
 import cPickle as pickle
-#import ipdb
 import bz2
+import ipdb
 
 F_MAX=500
 Z_MAX = 8
@@ -275,6 +275,7 @@ def andb(arrs):
 	for aa in arrs: result+=np.array(aa,dtype=np.int)
 	return result
 
+
 def optcom(data,t2s,tes,mask):
 	"""
 	out = optcom(data,t2s)
@@ -298,7 +299,11 @@ def optcom(data,t2s,tes,mask):
 	tes = tes[np.newaxis,:]
 	ft2s = ft2s[:,np.newaxis]
 	
-	alpha = tes * np.exp(-tes /ft2s)
+	if options.combmode == 'ste':
+		alpha = fdat.mean(-1)*tes
+	else: 
+		alpha = tes * np.exp(-tes /ft2s)
+	
 	alpha = np.tile(alpha[:,:,np.newaxis],(1,1,Nt))
 
 	fout  = np.average(fdat,axis = 1,weights=alpha)
@@ -576,13 +581,11 @@ def writeresults():
 		writefeats2(split_ts(ts,comptable,mmix)[0],mmix[:,acc],mask,'OC2')
 	print "++ Writing component table"
 	writect(comptable,'comp_table.txt',varexpl)
-	if options.e2d!=None:
-		options.e2d=int(options.e2d)
-		print "++ Writing Kappa-filtered TE#%i timeseries" % (options.e2d)
-		write_split_ts(catd[:,:,:,options.e2d-1,:],comptable,mmix,'e%i' % options.e2d)
-		print "++ Writing high-Kappa TE#%i  features" % (options.e2d)
-		writefeats(betas[:,:,:,options.e2d-1,:],comptable,mmix,'e%i' % options.e2d)
 
+def writeresults_echoes():
+	for ii in range(ne):
+		print "++ Writing Kappa-filtered TE#%i timeseries" % (ii+1)
+		write_split_ts(catd[:,:,:,ii,:],comptable,mmix,'e%i' % (ii+1))
 
 
 ###################################################################################################
@@ -600,7 +603,8 @@ if __name__=='__main__':
 	parser.add_option('',"--rdaw",dest='rdaw',help="Dimensionality augmentation weight (Rho). Default 1. -1 for low-dimensional ICA",default=1.)
 	parser.add_option('',"--conv",dest='conv',help="Convergence limit. Default 2.5e-5",default='2.5e-5')
 	parser.add_option('',"--sourceTEs",dest='ste',help="Source TEs for models. ex: -ste 2,3 ; -ste 0 for all, -1 for opt. com. Default -1.",default=0-1)	
-	parser.add_option('',"--denoiseTE",dest='e2d',help="TE to denoise. Default middle",default=None)	
+	parser.add_option('',"--combmode",dest='combmode',help="Combination scheme for TEs: t2s (Posse 1999, default),ste(Poser)",default='t2s')	
+	parser.add_option('',"--denoiseTEs",dest='dne',action='store_true',help="Denoise each TE dataset separately",default=False)	
 	parser.add_option('',"--initcost",dest='initcost',help="Initial cost func. for ICA: pow3,tanh(default),gaus,skew",default='tanh')
 	parser.add_option('',"--finalcost",dest='finalcost',help="Final cost func, same opts. as initial",default='tanh')	
 	parser.add_option('',"--stabilize",dest='stabilize',action='store_true',help="Stabilize convergence by reducing dimensionality, for low quality data",default=False)
@@ -675,4 +679,5 @@ if __name__=='__main__':
 	if len(acc)==0:
 		print "\n** WARNING! No BOLD components detected!!! Please check data and results!\n"
     
-	writeresults()        
+	writeresults()
+	if options.dne: writeresults_echoes()    

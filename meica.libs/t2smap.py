@@ -213,7 +213,11 @@ def optcom(data,t2s,tes,mask):
 	tes = tes[np.newaxis,:]
 	ft2s = ft2s[:,np.newaxis]
 	
-	alpha = tes * np.exp(-tes /ft2s)
+	if options.combmode == 'ste':
+		alpha = fdat.mean(-1)*tes
+	else: 
+		alpha = tes * np.exp(-tes /ft2s)
+	
 	alpha = np.tile(alpha[:,:,np.newaxis],(1,1,Nt))
 
 	fout  = np.average(fdat,axis = 1,weights=alpha)
@@ -229,6 +233,7 @@ if __name__=='__main__':
 
 	parser=OptionParser()
 	parser.add_option('-d',"--orig_data",dest='data',help="Spatially Concatenated Multi-Echo Dataset",default=None)
+	parser.add_option('-c',"--combmode",dest='combmode',help="Combination scheme for TEs: t2s (Posse 1999),ste(Poser,2006 default)",default='ste')	
 	parser.add_option('-l',"--label",dest='label',help="Optional label to tag output files with",default=None)
 	parser.add_option('-e',"--TEs",dest='tes',help="Echo times (in ms) ex: 15,39,63",default=None)
 

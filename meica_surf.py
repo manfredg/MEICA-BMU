@@ -1,23 +1,4 @@
-"""
-Called with:
--a anatomical
--e echoes
--d datasets
--o other meica options 
 
--f FreeSurfer ID
--s smoothing level (surface+volume)
--l linear density
--t template
-
-
-1. Grab FS directory and MNI-FS tempalte
-2. Prepare surface: align, map, icosahedron
-3. Do anatomical warp steps
-4. Do meica.py
-5. Map coregistered funcs to std. surface
-6. Appl
-"""
 
 import sys
 import commands
@@ -28,7 +9,7 @@ import os.path
 from string import rstrip,split
 from optparse import OptionParser,OptionGroup
 import cPickle as pickle
-import ipdb
+#import ipdb
 
 #Initiate session
 class Sess:
@@ -203,14 +184,14 @@ if __name__=='__main__':
 	if 'setup' in run_steps:
 		cmds.append('set -e')
 		gomeicaPdir(3)
-		cmds.append("if [ ! -e %s/%s ]; then ln -s %s %s; fi" % (gomeicaPdir(0),os.path.basename(S.sourceanatpath), S.sourceanatpath,gomeicaPdir(0)))
+		cmds.append("ln -sf %s* %s/" % ( S.sourceanatpath,gomeicaPdir(0)))
 		for ff in S.funcpaths:
-			cmds.append("if [ ! -e %s/%s ]; then ln -s %s %s; fi" % (gomeicaPdir(0),os.path.basename(ff),ff,gomeicaPdir(0)))
+			cmds.append("ln -sf %s* %s/" % (ff,gomeicaPdir(0)))
 
 	
 	#Gradwarp and fieldmap steps here
 
-	if 'mepreX' in run_steps:
+	if 'mepre' in run_steps:
 		logcomment("Performing ME-ICA preprocessing steps basic functional corrections and anatomical-functional coregistration",level=1)
 		gomeicaPdir(1)
 		infargs='--qwarp --fres 2.5 --space=%s/stdvol+tlrc --keep_int --pp_only %s' % (options.template,S.volsmopt) #!! --qwarp should be here but ommitted to save time 
@@ -224,7 +205,7 @@ if __name__=='__main__':
 		cmds.append('cp %s/*_in.nii.gz %s_innative/' % (gomeicadir(0),S.setname))
 		cmds.append('cp %s/eBvrmask.nii.gz %s_innative/' % (gomeicadir(0),S.setname))
 
-	if 'sumaX' in run_steps:
+	if 'suma' in run_steps:
 		logcomment("Doing SUMA steps",level=1)
 		fsdir = gofsdir(1)
 		#Create SUMA session if it doesn't exist
@@ -232,7 +213,8 @@ if __name__=='__main__':
 		cmds.append("if [ ! -d %s ]; then ln -s %s/SUMA %s; fi" % (gosumadir(0),S.fspath,gosumadir(0)))
 		#Warp to me-ica's skullstripped anat
 		gomeicaPdir()
-		cmds.append("if [ ! -e %s/aseg_rank_Alnd_Exp+orig.HEAD ]; then @SUMA_AlignToExperiment -exp_anat %s/%s -surf_anat %s/%s_SurfVol+orig -atlas_followers -followers_interp NN -strip_skull surf_anat -overwrite_resp O ; fi" % (gosumadir(0),gomeicaPdir(0),S.nsmprage,gosumadir(0),options.fsid) )		
+		cmds.append("for ff in `ls %s/*rank*nii`; do 3daxialize -overwrite -prefix $ff $ff; done" % (gosumadir(0))  )
+		cmds.append("@SUMA_AlignToExperiment -exp_anat %s/%s -surf_anat %s/%s_SurfVol+orig -atlas_followers -followers_interp NN -strip_skull surf_anat -overwrite_resp O -surf_anat_followers %s/aseg_rank.nii %s/aparc.a2009s+aseg_rank.nii" % (gomeicaPdir(0),S.nsmprage,gosumadir(0),options.fsid,gosumadir(0),gosumadir(0)) )		
 		gosumadir(1)
 		#MapIcosahedron for subject???
 		cmds.append("hemis=\"lh rh\"; for hemi in $hemis; do MapIcosahedron -overwrite -spec std.141.%s_${hemi}.spec -ld 200 -prefix ld200_ -morph std.141.${hemi}.sphere.asc; done" % (options.fsid))
@@ -275,8 +257,12 @@ if __name__=='__main__':
 		cmds.append("%s %s/meica.libs/tedana.py -e %s  -d %s/zcat_ffd.nii.gz --sourceTEs=-1 --kdaw=10 --rdaw=1 --initcost=tanh --finalcost=tanh --conv=2.5e-5" % (sys.executable,S.codedir,options.tes,godecodir(0)))
 		cmds.append("%s %s/meica.libs/godec.py -p 3 -t 3 -w -r 1 -d TED/dn_ts_OC.nii" % (sys.executable,S.codedir))
 	
-	print '\n'.join(cmds)
-
+	outscr='\n'.join(cmds)
+	scrfile = '_meicaP.%s.sh' % options.prefix
+	ofh = open(scrfile,'w')
+	ofh.write(outscr)
+	if not options.noexec: 
+		os.system("bash %s" % scrfile)
 
 
 
