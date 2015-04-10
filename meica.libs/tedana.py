@@ -34,7 +34,7 @@ if __name__=='__main__':
 	execfile(selfuncfile)
 import cPickle as pickle
 import bz2
-import ipdb
+#import ipdb
 
 F_MAX=500
 Z_MAX = 8
