@@ -40,7 +40,6 @@ runopts=OptionGroup(parser,"Run options")
 runopts.add_option('',"--sourcepath",dest='sourcepath',help="Source directory for functionals",default=os.getcwd())
 runopts.add_option('',"--jobs",dest='jobs',help="Number of CPUs to use", default=2)
 runopts.add_option('',"--steps",dest='steps',help="Do procedures, default all: %s " % run_steps_str,default=run_steps_str)
-runopts.add_option('',"--resume",dest='resume',help="Re-use outputs of previously run steps %s" % run_steps_str,default=run_steps_str)
 runopts.add_option('',"--noexec",dest='noexec',action='store_true',help="Just write script, dont run", default=False)
 parser.add_option_group(runopts)
 (options,args) = parser.parse_args()
@@ -99,7 +98,6 @@ def gomeicaPdir(go=1):
 	if go==1: cmds.append("cd %s" % S.meicaPdir)
 	elif go==3: dirmakeenter(S.meicaPdir)
 	return S.meicaPdir
-	
 
 def gosumadir(go=1):
 	homedir = gomeicaPdir(0)
@@ -150,7 +148,7 @@ def parseade():
 		S.prefix=resplit(r'[\[\],]',dsinputs)[0]
 		S.dsids=sorted(resplit(r'[\[\],]',dsinputs)[1:-1])
 		S.trailing=resplit(r'[\]+]',dsinputs)[-1]
-		S.setname=S.prefix+''.join(S.dsids)+S.trailing
+		S.setname=os.path.basename(S.prefix+''.join(S.dsids)+S.trailing)
 		S.datasets = [S.prefix + dd + S.trailing+S.isf for dd in S.dsids]
 	else:
 		datasets_in = options.dsinputs.split(',')
@@ -161,12 +159,14 @@ def parseade():
 		S.setname=S.prefix
 	#Parse anatomical name
 	S.anatsource = os.path.dirname(options.anat)
+	S.anatfn = os.path.basename(options.anat)
 	if S.anatsource=='': S.anatsource = os.path.abspath(os.path.curdir)
 	S.anatprefix=dsprefix(os.path.basename(options.anat))	
 	S.sourceanatpath = os.path.join(S.anatsource,S.anatprefix+dssuffix(options.anat))
 	S.nsmprage="%s_ns.nii.gz" % dsprefix(S.anatprefix)
 	#Parse functional files
 	S.funcsource = os.path.dirname(options.dsinputs)
+	S.funcfn = os.path.basename(options.dsinputs)
 	if S.funcsource == '': S.funcsource = os.path.abspath(os.path.curdir)
 	S.funcpaths = [os.path.join(S.funcsource,os.path.basename(ff)) for ff in S.datasets]
 	#Parse smoothing parameters
@@ -175,14 +175,18 @@ def parseade():
 	#Parse template name
 	S.tmplname = os.path.basename(options.template.rstrip('/')).split('.mpt')[0]
 	
+	print S.anatsource, S.funcsource, S.anatfn, S.funcfn
 
 parseade()
-cmds = []
 
 if __name__=='__main__':
 
+	cmds = []
+	cmds.append('#!/bin/bash' )
+	cmds.append('#%s' % ' '.join(sys.argv) )
+	cmds.append('set -e')
+
 	if 'setup' in run_steps:
-		cmds.append('set -e')
 		gomeicaPdir(3)
 		cmds.append("ln -sf %s* %s/" % ( S.sourceanatpath,gomeicaPdir(0)))
 		for ff in S.funcpaths:
@@ -194,13 +198,13 @@ if __name__=='__main__':
 	if 'mepre' in run_steps:
 		logcomment("Performing ME-ICA preprocessing steps basic functional corrections and anatomical-functional coregistration",level=1)
 		gomeicaPdir(1)
-		infargs='--qwarp --fres 2.5 --space=%s/stdvol+tlrc --keep_int --pp_only %s' % (options.template,S.volsmopt) #!! --qwarp should be here but ommitted to save time 
-		cmds.append('%s %s/meica.py -e %s -d \"%s\" -a %s %s %s %s %s' % (sys.executable,S.codedir,options.tes,options.dsinputs,options.anat,infargs,options.align_args,options.ted_args,options.mex))
+		infargs='--OVERWRITE --qwarp --fres 2.5 --space=%s/stdvol+tlrc --keep_int --pp_only %s' % (options.template,S.volsmopt) #!! --qwarp should be here but ommitted to save time 
+		cmds.append('%s %s/meica.py -e %s -d \"%s\" -a %s %s %s %s %s' % (sys.executable,S.codedir,options.tes,S.funcfn,S.anatfn,infargs,options.align_args,options.ted_args,options.mex))
 		dirmakeenter('%s_inspace' % S.setname,0)		
 		cmds.append('cp %s/*_in.nii.gz %s_inspace/' % (gomeicadir(0),S.setname))
 		cmds.append('cp %s/eBvrmask.nii.gz %s_inspace/' % (gomeicadir(0),S.setname))
 		infargs='--fres 2.5 --RESUME --pp_only %s' % S.volsmopt
-		cmds.append('%s %s/meica.py -e %s -d \"%s\" -a %s %s %s %s %s' % (sys.executable,S.codedir,options.tes,options.dsinputs,options.anat,infargs,options.align_args,options.ted_args,options.mex))
+		cmds.append('%s %s/meica.py -e %s -d \"%s\" -a %s %s %s %s %s' % (sys.executable,S.codedir,options.tes,S.funcfn,S.anatfn,infargs,options.align_args,options.ted_args,options.mex))
 		dirmakeenter('%s_innative' % S.setname,0)
 		cmds.append('cp %s/*_in.nii.gz %s_innative/' % (gomeicadir(0),S.setname))
 		cmds.append('cp %s/eBvrmask.nii.gz %s_innative/' % (gomeicadir(0),S.setname))
@@ -228,6 +232,7 @@ if __name__=='__main__':
 		cmds.append('done')
 
 	if 'sumavol' in run_steps:
+		logcomment("Doing SUMA surface to volume mapping",level=1)
 		dset_list = [ '%s/%s_innative/e%s_in_${hemi}.std_141.niml.dset' % (gomeicaPdir(0),S.setname,dii) for dii in S.dsids ]
 		S.us_dset_list = [ '%s/%s_innative/ld200_e%s_in_${hemi}.std_141.niml.dset' % (gomeicaPdir(0),S.setname,dii) for dii in S.dsids ]	
 		S.dsetmap_list = '-NN_dset_map ' + ' -NN_dset_map '.join(dset_list)
@@ -242,6 +247,8 @@ if __name__=='__main__':
 			cmds.append("hemis=\"lh rh\"; for hemi in $hemis; do 3dSurf2Vol -spec %s/ld200_std.141.%s_${hemi}.spec -surf_A pial -surf_B smoothwm -grid_parent abtemplate_epi.nii.gz -sv %s/%s_SurfVol_Alnd_Exp+orig.HEAD -datum float -f_steps 20 -map_func mode -sdata %s -overwrite -prefix %s.nii.gz; done" % (gotmpldir(0),S.tmplname,gotmpldir(0),S.tmplname,dset,dsprefix(os.path.basename(dset)) ))
 
 	if 'svmerge' in run_steps:
+		logcomment("Merging surface and volume warped datasets",level=1)
+		gospmdir(1)
 		cmds.append("3dNwarpApply -overwrite -nwarp '%s/%s_ns_atnl_WARP.nii.gz %s/%s_ns2at.aff12.1D' -master %s/abtemplate_epi.nii.gz -dxyz 2.5 -source %s/aseg_rank_Alnd_Exp+orig -interp NN -prefix %s/sub_aseg_rank_epi.nii.gz" % (gomeicaPdir(0),S.anatprefix,gomeicaPdir(0),S.anatprefix,gospmdir(0),gomeicaPdir(0),gospmdir(0)))
 		cmds.append("3dresample -overwrite -inset  %s/aseg_rank_Alnd_Exp+orig -master %s/abtemplate_epi.nii.gz -rmode NN -prefix %s/tmpl_aseg_rank_epi.nii.gz"% (gotmpldir(0),gospmdir(0),gospmdir(0)) )
 		cmds.append("3dresample -overwrite -inset  %s/deepstruct.nii.gz -master %s/abtemplate_epi.nii.gz -rmode NN -prefix %s/deepstruct_epi.nii.gz"% (gotmpldir(0),gospmdir(0),gospmdir(0)) )
@@ -254,15 +261,38 @@ if __name__=='__main__':
 		cmds.append("mv %s/zcat_ffd.nii.gz %s" % (gospmdir(0),godecodir(0)) )
 
 	if 'svtedana' in run_steps:
+		logcomment("Executing decomposition steps",level=1)
+		godecodir(1)
 		cmds.append("%s %s/meica.libs/tedana.py -e %s  -d %s/zcat_ffd.nii.gz --sourceTEs=-1 --kdaw=10 --rdaw=1 --initcost=tanh --finalcost=tanh --conv=2.5e-5" % (sys.executable,S.codedir,options.tes,godecodir(0)))
-		cmds.append("%s %s/meica.libs/godec.py -p 3 -t 3 -w -r 1 -d TED/dn_ts_OC.nii" % (sys.executable,S.codedir))
+		cmds.append("3dTstat -prefix ./mean.nii.gz TED/dn_ts_OC.nii")
+		cmds.append("3dcalc -a mean.nii.gz -b TED/hik_ts_OC.nii -expr 'a+b' -prefix ./hik_ts_OCm.nii.gz")
+		cmds.append("%s %s/meica.libs/godec.py -p 3 -t 3 -r 1 -d hik_ts_OCm.nii.gz" % (sys.executable,S.codedir))
+
+	if 'export' in run_steps:
+		logcomment("Copying data to start directory",level=1)
+		godecodir(1)
+		cmds.append("cp %s/noise_nvnr1k2p3t3.nii %s/%s_hiks.nii" %  (godecodir(0),S.bdir,options.prefix) )
+		cmds.append("cp %s/TED/betas_hik_OC.nii %s/%s_mefc.nii" %  (godecodir(0),S.bdir,options.prefix) )
+		cmds.append("cp %s/TED/ts_OC.nii %s/%s_tsoc.nii" %  (godecodir(0),S.bdir,options.prefix) )
+		cmds.append("nifti_tool -mod_hdr -mod_field sform_code 2 -mod_field qform_code 2 -infiles %s/%s_tsoc.nii -overwrite" % (S.bdir,options.prefix) )
+		cmds.append("nifti_tool -mod_hdr -mod_field sform_code 2 -mod_field qform_code 2 -infiles %s/%s_hiks.nii -overwrite" % (S.bdir,options.prefix) )
+		cmds.append("nifti_tool -mod_hdr -mod_field sform_code 2 -mod_field qform_code 2 -infiles %s/%s_mefc.nii -overwrite" % (S.bdir,options.prefix) )
+		cmds.append("gzip -f %s/%s_hiks.nii" %  (S.bdir,options.prefix) )
+		cmds.append("gzip -f %s/%s_mefc.nii" %  (S.bdir,options.prefix) )
+		cmds.append("gzip -f %s/%s_tsoc.nii" %  (S.bdir,options.prefix) )
+		cmds.append("cp %s/motion.1D %s/%s_motion.1D" %  (gomeicadir(0),S.bdir,options.prefix) )
+		cmds.append("1d_tool.py -overwrite -derivative -infile %s/motion.1D -write %s/motion_dt.1D" % (gomeicadir(0),gomeicadir(0)))
+		cmds.append("1dcat %s/motion.1D %s/motion_dt.1D > %s/%s_moreg.1D" % (gomeicadir(0),gomeicadir(0),S.bdir,options.prefix))
+		
 	
 	outscr='\n'.join(cmds)
-	scrfile = '_meicaP.%s.sh' % options.prefix
+	scrfile = '_meicaP_%s.sh' % options.prefix
 	ofh = open(scrfile,'w')
 	ofh.write(outscr)
-	if not options.noexec: 
-		os.system("bash %s" % scrfile)
+	ofh.close()
+	
+	if not options.noexec:
+		os.system("bash %s/%s"  % (os.getcwd(),scrfile) )
 
 
 
