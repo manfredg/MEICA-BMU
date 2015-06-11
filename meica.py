@@ -287,7 +287,7 @@ else:
 	basebrik=int(round(timetoclip/tr))
 
 #Misc. command parsing
-if options.mni: options.space='MNI_caez_N27+tlrc'
+if options.mni and not options.space: options.space='MNI_caez_N27+tlrc'
 if options.qwarp and (options.anat=='' or not options.space):
 	print "*+ Can't specify Qwarp nonlinear coregistration without anatomical and SPACE template!"
 	sys.exit()
