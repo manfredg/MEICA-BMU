@@ -461,6 +461,8 @@ def tedica(dd,cost):
 	#icanode = mdp.nodes.FastICANode(white_comp=nc, white_parm={'svd':True},approach='symm', g=cost, fine_g=options.finalcost, limit=climit, verbose=True)
 	icanode = mdp.nodes.FastICANode(white_comp=nc,approach='symm', g=cost, fine_g=options.finalcost, primary_limit=climit*100, limit=climit, verbose=True)
 	icanode.train(dd)
+	print "We set the seed to 42!"
+	mdp.numx_rand.seed(42)
 	smaps = icanode.execute(dd)
 	mmix = icanode.get_recmatrix().T
 	mmix = (mmix-mmix.mean(0))/mmix.std(0)
@@ -638,7 +640,7 @@ if __name__=='__main__':
 	os.system('mkdir %s' % dirname)
 	if options.mixm!=None: 
 		try:
-			os.system('cp %s %s/meica_mix.1D; cp %s %s/%s' % (options.mixm,dirname,options.mixm,dirname,os.path.basename(options.mixm)))
+			os.system('cp -p %s %s/___meica_mix.1D; cp -p %s %s/%s' % (options.mixm,dirname,options.mixm,dirname,os.path.basename(options.mixm)))
 		except:
 			pass
 	os.chdir(dirname)
@@ -661,17 +663,14 @@ if __name__=='__main__':
 		nc,dd = tedpca(options.ste)
 		mmix_orig = tedica(dd,cost=options.initcost)
 		np.savetxt('__meica_mix.1D',mmix_orig)
-		seldict,comptable,betas,mmix = fitmodels_direct(catd,mmix_orig,mask,t2s,tes,options.fout,reindex=True)
-		np.savetxt('meica_mix.1D',mmix)
-		acc,rej,midk,empty = selcomps(seldict,knobargs=args)
 		del dd
 	else:
-		mmix_orig = np.loadtxt('meica_mix.1D')
+		mmix_orig = np.loadtxt('___meica_mix.1D')
 		eim = eimask(np.float64(fmask(catd,mask)))==1
 		eimum = np.array(np.squeeze(unmask(np.array(eim,dtype=np.int).prod(1),mask)),dtype=np.bool)
-		seldict,comptable,betas,mmix = fitmodels_direct(catd,mmix_orig,mask,t2s,tes,options.fout)
-		acc,rej,midk,empty = selcomps(seldict,knobargs=args)
-
+	seldict,comptable,betas,mmix = fitmodels_direct(catd,mmix_orig,mask,t2s,tes,options.fout,reindex=True)
+	np.savetxt('meica_mix.1D',mmix)
+	acc,rej,midk,empty = selcomps(seldict,knobargs=args)
 	if len(acc)==0:
 		print "\n** WARNING! No BOLD components detected!!! Please check data and results!\n"
     
