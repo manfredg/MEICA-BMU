@@ -1,4 +1,4 @@
-__version__="v2.5 beta10"
+__version__="v2.5 beta11"
 welcome_block="""
 # Multi-Echo ICA, Version %s
 #

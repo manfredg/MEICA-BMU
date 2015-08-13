@@ -461,8 +461,8 @@ def tedica(dd,cost):
 	#icanode = mdp.nodes.FastICANode(white_comp=nc, white_parm={'svd':True},approach='symm', g=cost, fine_g=options.finalcost, limit=climit, verbose=True)
 	icanode = mdp.nodes.FastICANode(white_comp=nc,approach='symm', g=cost, fine_g=options.finalcost, primary_limit=climit*100, limit=climit, verbose=True)
 	icanode.train(dd)
-	print "We set the seed to 42!"
-	mdp.numx_rand.seed(42)
+	print "We set the ICA seed to %d!" % fixedseed
+	mdp.numx_rand.seed(fixedseed)
 	smaps = icanode.execute(dd)
 	mmix = icanode.get_recmatrix().T
 	mmix = (mmix-mmix.mean(0))/mmix.std(0)
@@ -608,6 +608,7 @@ if __name__=='__main__':
 	parser.add_option('',"--stabilize",dest='stabilize',action='store_true',help="Stabilize convergence by reducing dimensionality, for low quality data",default=False)
 	parser.add_option('',"--fout",dest='fout',help="Output TE-dependence Kappa/Rho SPMs",action="store_true",default=False)
 	parser.add_option('',"--label",dest='label',help="Label for output directory.",default=None)
+	parser.add_option('',"--seed",dest='seed',help="Seed used for ICA. Default 42.",default=42)
 
 	(options,args) = parser.parse_args()
 
@@ -635,6 +636,7 @@ if __name__=='__main__':
 	else: options.fout=None
 	kdaw = float(options.kdaw)
 	rdaw = float(options.rdaw)
+	fixedseed = int(options.seed)
 	if options.label!=None: dirname='%s' % '.'.join(['TED',options.label])
 	else: dirname='TED'
 	os.system('mkdir %s' % dirname)
