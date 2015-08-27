@@ -562,8 +562,8 @@ for echo_ii in range(len(datasets)):
 		if options.anat and options.space and options.qwarp: 
 			if old_qwarp: affter_string = "'-affter '%s_wmat.aff12.1D'" % prefix
 			else: affter_string = ""
-			sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz'  %s %s -source eBvrmask.nii.gz -interp %s -prefix ./eBvrmask.nii.gz " % \
-			(startdir,dsprefix(nlatnsmprage),prefix,almaster,qwfres,'NN'))
+			sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' %s %s %s -source eBvrmask.nii.gz -interp %s -prefix ./eBvrmask.nii.gz " % \
+			(startdir,dsprefix(nlatnsmprage),affter_string,almaster,qwfres,'NN'))
 			if options.t2salign or options.mask_mode!='func':
 				sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' %s %s %s -source t2svm_ss.nii.gz -interp %s -prefix ./t2svm_ss_vr.nii.gz " % \
 				(startdir,dsprefix(nlatnsmprage),affter_string,almaster,qwfres,'NN'))
