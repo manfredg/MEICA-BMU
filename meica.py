@@ -336,7 +336,7 @@ if options.anat=='' and options.mask_mode!='func':
 
 #Detect if current AFNI has old 3dNwarpApply
 if " -affter aaa  = *** THIS OPTION IS NO LONGER AVAILABLE" in commands.getstatusoutput("3dNwarpApply -help")[1]: old_qwarp = False
-else: old_warp = True
+else: old_qwarp = True
 
 #Detect AFNI direcotry
 afnidir = os.path.dirname(os.popen('which 3dSkullStrip').readlines()[0])
