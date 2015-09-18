@@ -561,8 +561,8 @@ for echo_ii in range(len(datasets)):
 		sl.append("voxsize=`ccalc $(3dinfo -voxvol eBvrmask.nii.gz)**.33`") #Set voxel size
 		#Create base mask
 		if options.anat and options.space and options.qwarp: 
-			if old_qwarp: affter_string = "'-affter '%s_wmat.aff12.1D'" % prefix
-			else: affter_string = ""
+			if old_qwarp: affter_string = "-affter '%s_wmat.aff12.1D'" % prefix
+			else: affter_string = "'%s_wmat.aff12.1D'" % prefix
 			sl.append("3dNwarpApply -overwrite -nwarp '%s/%s_WARP.nii.gz' %s %s %s -source eBvrmask.nii.gz -interp %s -prefix ./eBvrmask.nii.gz " % \
 			(startdir,dsprefix(nlatnsmprage),affter_string,almaster,qwfres,'NN'))
 			if options.t2salign or options.mask_mode!='func':
@@ -612,8 +612,8 @@ for echo_ii in range(len(datasets)):
 	#logcomment("Extended preprocessing dataset %s of TE=%sms to produce %s_in.nii.gz" % (indata,str(tes[echo_ii]),dsin),level=2 )
 	logcomment("Apply combined normalization/co-registration/motion correction parameter set to %s_ts+orig" % dsin)
 	if options.qwarp: 
-		if old_qwarp: affter_string = "-affter %s_vrwmat.aff12.1D" % prefix
-		else: affter_string = ""
+		if old_qwarp: affter_string = "-affter '%s_vrwmat.aff12.1D'" % prefix
+		else: affter_string = "'%s_vrwmat.aff12.1D'" % prefix
 		sl.append("3dNwarpApply -nwarp '%s/%s_WARP.nii.gz' %s -master eBvrmask.nii.gz -source %s_ts+orig -interp %s -prefix ./%s_vr%s " % \
 			(startdir,dsprefix(nlatnsmprage),affter_string,dsin,align_interp,dsin,osf))
 	else: sl.append("3dAllineate -final %s -%s -float -1Dmatrix_apply %s_vrwmat.aff12.1D -base eBvrmask%s -input  %s_ts+orig -prefix ./%s_vr%s" % \
