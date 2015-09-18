@@ -171,6 +171,7 @@ extopts.add_option('',"--align_base",dest='align_base',help="Explicitly specify 
 extopts.add_option('',"--TR",dest='TR',help="The TR. Default read from input dataset header",default='')
 extopts.add_option('',"--tpattern",dest='tpattern',help="Slice timing (i.e. alt+z, see 3dTshift -help). Default from header. (N.B. This is important!)",default='')
 extopts.add_option('',"--align_args",dest='align_args',help="Additional arguments to anatomical-functional co-registration routine",default='')
+extopts.add_option('',"--seed",dest='seed',help="Seed used for ICA. Default 42.",default=42)
 extopts.add_option('',"--ted_args",dest='ted_args',help="Additional arguments to TE-dependence analysis routine",default='')
 extopts.add_option('',"--daw",dest='daw',help=SUPPRESS_HELP,default='10')
 extopts.add_option('',"--tlrc",dest='space',help=SUPPRESS_HELP,default=False) #For backwards compat. with existing scripts
@@ -180,7 +181,7 @@ extopts.add_option('',"--initcost",dest='initcost',help=SUPPRESS_HELP,default='t
 extopts.add_option('',"--finalcost",dest='finalcost',help=SUPPRESS_HELP,default='tanh')
 extopts.add_option('',"--sourceTEs",dest='sourceTEs',help=SUPPRESS_HELP,default='-1')
 parser.add_option_group(extopts)
-runopts=OptionGroup(parser,"Run optipns")
+runopts=OptionGroup(parser,"Run options")
 runopts.add_option('',"--prefix",dest='prefix',help="Prefix for final ME-ICA output datasets.",default='')
 runopts.add_option('',"--cpus",dest='cpus',help="Maximum number of CPUs (OpenMP threads) to use. Default 2.",default='2')
 runopts.add_option('',"--label",dest='label',help="Label to tag ME-ICA analysis folder.",default='')
@@ -656,7 +657,7 @@ else: tedflag = ''
 if os.path.exists('%s/meica.libs' % (meicadir)): tedanapath = 'meica.libs/tedana.py'
 else: tedanapath = 'tedana.py'
 logcomment("Perform TE-dependence analysis (takes a good while)",level=1)
-sl.append("%s%s %s -e %s  -d %s --sourceTEs=%s --kdaw=%s --rdaw=1 --initcost=%s --finalcost=%s --conv=2.5e-5 %s" % (tedflag,sys.executable, '/'.join([meicadir,tedanapath]),options.tes,ica_input,options.sourceTEs,options.daw,options.initcost,options.finalcost,options.ted_args))
+sl.append("%s%s %s -e %s  -d %s --sourceTEs=%s --kdaw=%s --rdaw=1 --initcost=%s --finalcost=%s --conv=2.5e-5 --seed=%d %s" % (tedflag,sys.executable, '/'.join([meicadir,tedanapath]),options.tes,ica_input,options.sourceTEs,options.daw,options.initcost,options.finalcost,int(options.seed),options.ted_args))
 sl.append("#")
 if outprefix=='': outprefix=setname
 
