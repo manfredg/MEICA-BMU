@@ -144,23 +144,25 @@ def fitmodels_direct(catd,mmix,mask,t2s,tes,fout=None,reindex=False,mmixN=None,f
 
 			#Save out files
 			out = np.zeros((nx,ny,nz,4))
-			if fout!=None: 
-				ccname = "cc%.3d.nii" % i
-			else: ccname = ".cc_temp.nii.gz"
-
 			out[:,:,:,0] = np.squeeze(unmask(PSC[:,i],mask))
 			out[:,:,:,1] = np.squeeze(unmask(F_R2_maps[:,i],mask))
 			out[:,:,:,2] = np.squeeze(unmask(F_S0_maps[:,i],mask))
 			out[:,:,:,3] = np.squeeze(unmask(Z_maps[:,i],mask))
-			niwrite(out,fout,ccname)
-			os.system('3drefit -sublabel 0 PSC -sublabel 1 F_R2  -sublabel 2 F_SO -sublabel 3 Z_sn %s 2> /dev/null > /dev/null'%ccname)
 
 			csize = np.max([int(Nm*0.0005)+5,20])
 
+			if fout!=None: 
+				ccname = "cc%.3d.nii" % i
+				niwrite(out,fout,ccname)
+				os.system('3drefit -sublabel 0 PSC -sublabel 1 F_R2  -sublabel 2 F_SO -sublabel 3 Z_sn %s 2> /dev/null > /dev/null'%ccname)
+			else:
+				ccname = "%s/.cc_temp.nii.gz" % TMPDIR
+				niwrite(out,fout,ccname)
+
 			#Do simple clustering on F
-			os.system("3dcalc -overwrite -a %s[1..2] -expr 'a*step(a-%i)' -prefix .fcl_in.nii.gz -overwrite" % (ccname,fmin))
-			os.system('3dmerge -overwrite -dxyz=1 -1clust 1 %i -doall -prefix .fcl_out.nii.gz .fcl_in.nii.gz' % (csize))
-			sel = fmask(nib.load('.fcl_out.nii.gz').get_data(),mask)!=0
+			os.system("3dcalc -overwrite -a %s[1..2] -expr 'a*step(a-%i)' -prefix %s/.fcl_in.nii.gz" % (ccname,fmin,TMPDIR))
+			os.system('3dmerge -overwrite -dxyz=1 -1clust 1 %i -doall -prefix %s/.fcl_out.nii.gz %s/.fcl_in.nii.gz' % (csize,TMPDIR,TMPDIR))
+			sel = fmask(nib.load("%s/.fcl_out.nii.gz" % TMPDIR).get_data(),mask)!=0
 			sel = np.array(sel,dtype=np.int)
 			F_R2_clmaps[:,i] = sel[:,0]
 			F_S0_clmaps[:,i] = sel[:,1]
@@ -298,7 +300,9 @@ def selcomps(seldict,debug=False,olevel=2,oversion=99,knobargs=''):
 	Rhos_lim = np.array(sorted(Rhos[ncls])[::-1])
 	Rhos_sorted = np.array(sorted(Rhos)[::-1])
 	Kappas_elbow = min(Kappas_lim[getelbow(Kappas_lim)],Kappas[getelbow(Kappas)])
-	Rhos_elbow = np.mean([Rhos_lim[getelbow(Rhos_lim)]  , Rhos_sorted[getelbow(Rhos_sorted)], getfbounds(ne)[0]])
+	#Rhos_elbow = np.mean([Rhos_lim[getelbow(Rhos_lim)]  , Rhos_sorted[getelbow(Rhos_sorted)], getfbounds(ne)[0]])
+	#Rhos_elbow = min([Rhos_lim[getelbow(Rhos_lim)]  , Rhos_sorted[getelbow(Rhos_sorted)], getfbounds(ne)[0]])
+	Rhos_elbow = np.median([Rhos_lim[getelbow(Rhos_lim)]  , Rhos_sorted[getelbow(Rhos_sorted)], getfbounds(ne)[0]])
 	good_guess = ncls[andb([Kappas[ncls]>=Kappas_elbow, Rhos[ncls]<Rhos_elbow])==2]
 	if debug:
 		import ipdb
@@ -319,6 +323,8 @@ def selcomps(seldict,debug=False,olevel=2,oversion=99,knobargs=''):
 	"""
 	max_good_d_score = EXTEND_FACTOR*len(good_guess)*d_table_rank.shape[1]
 	midkadd = ncl[andb([d_table_score[ncl] > max_good_d_score, varex[ncl] > EXTEND_FACTOR*varex_ub])==2]
+	midk = np.union1d(midkadd, midk)
+	midkadd = ncl[andb([Rhos[ncl]>=Rhos_elbow, varex[ncl] > EXTEND_FACTOR*varex_ub])==2]
 	midk = np.union1d(midkadd, midk)
 	ncl = np.setdiff1d(ncl,midk)
 

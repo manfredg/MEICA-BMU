@@ -39,6 +39,13 @@ import bz2
 F_MAX=500
 Z_MAX = 8
 
+TMPDIR="/tmp/meica-%i" % os.getpid()
+import atexit
+
+def rmtmpdir():
+	os.system("rm -rf /tmp/meica-%i" % os.getpid())
+#	[os.remove("%s/%s" % (TMPDIR,i)) for i in os.listdir(TMPDIR)]
+
 def _interpolate(a, b, fraction):
     """Returns the point at the given fraction between a and b, where
     'fraction' must be between 0 and 1.
@@ -86,13 +93,13 @@ def spatclust(data,mask,csize,thr,header,aff,infile=None,dindex=0,tindex=0):
 	if infile==None:
 		data = data.copy()
 		data[data<thr] = 0
-		niwrite(unmask(data,mask),aff,'__clin.nii.gz',header)
-		infile='__clin.nii.gz'
+		niwrite(unmask(data,mask),aff,'%s/__clin.nii.gz' % TMPDIR,header)
+		infile='%s/__clin.nii.gz' % TMPDIR
 	addopts=""
 	if data!=None and len(np.squeeze(data).shape)>1 and dindex+tindex==0: addopts="-doall"
 	else: addopts="-1dindex %s -1tindex %s" % (str(dindex),str(tindex))
-	os.system('3dmerge -overwrite %s -dxyz=1  -1clust 1 %i -1thresh %.02f -prefix __clout.nii.gz %s' % (addopts,int(csize),float(thr),infile))
-	clustered = fmask(nib.load('__clout.nii.gz').get_data(),mask)!=0
+	os.system('3dmerge -overwrite %s -dxyz=1  -1clust 1 %i -1thresh %.02f -prefix %s/__clout.nii.gz %s' % (addopts,int(csize),float(thr),TMPDIR,infile))
+	clustered = fmask(nib.load('%s/__clout.nii.gz' % TMPDIR).get_data(),mask)!=0
 	return clustered
 
 def rankvec(vals):
@@ -646,7 +653,11 @@ if __name__=='__main__':
 		except:
 			pass
 	os.chdir(dirname)
-	
+
+	print "++ Create temporary directory %s" % TMPDIR
+	os.mkdir(TMPDIR)
+	atexit.register(rmtmpdir)
+
 	print "++ Computing Mask"
 	mask  = makemask(catd)
 
